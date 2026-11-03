@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 import re
 import random
 import requests
@@ -13,7 +14,9 @@ sys.stdout.reconfigure(line_buffering=True)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
-AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")  # Optional: e.g. mydiecasthub-21
+AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")
+
+CACHE_FILE = "seen_deals.json"
 
 TARGET_URLS = [
     {
@@ -26,25 +29,39 @@ TARGET_URLS = [
     }
 ]
 
+def load_seen_deals():
+    """Loads previously sent deal IDs/links from cache file."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as f:
+                return set(json.load(f))
+        except Exception:
+            pass
+    return set()
+
+def save_seen_deals(seen_set):
+    """Saves updated seen deals back to cache file (keeps last 200 items)."""
+    try:
+        # Keep latest 200 items to prevent file from growing indefinitely
+        trimmed_list = list(seen_set)[-200:]
+        with open(CACHE_FILE, "w") as f:
+            json.dump(trimmed_list, f)
+    except Exception as e:
+        print(f"⚠️ Failed to save cache: {e}", flush=True)
+
 def normalize_and_clean_url(raw_url, domain_prefix=""):
-    """
-    Fixes '//www.firstcry.com' double-domain bugs and strips massive Amazon tracking strings.
-    """
+    """Fixes protocol bugs and cleans Amazon/FirstCry URLs."""
     if not raw_url:
         return ""
     
     url = raw_url.strip()
-
-    # 1. Fix protocol-relative URLs (e.g. //www.firstcry.com/...)
     if url.startswith("//"):
         url = "https:" + url
     elif not url.startswith("http"):
         url = f"{domain_prefix.rstrip('/')}/{url.lstrip('/')}"
 
-    # Fix accidental double domain if already present
     url = re.sub(r"^https?://[^/]+//+", "https://", url)
 
-    # 2. Strip Amazon links down to clean /dp/ASIN format
     if "amazon.in" in url:
         asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
         if asin_match:
@@ -54,21 +71,17 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
                 return f"{base_amzn}?tag={AMAZON_AFFILIATE_TAG}"
             return base_amzn
 
-    # 3. Clean FirstCry query parameters
     if "firstcry.com" in url:
         return url.split("?")[0]
 
     return url
 
 def convert_to_affiliate_link(raw_url):
-    """
-    - Uses direct AMAZON_AFFILIATE_TAG for Amazon.in links + shortens them.
-    - Uses Cuelinks API for FirstCry and other stores.
-    """
+    """Converts merchant URLs using direct Amazon Tag or Cuelinks v3 API."""
     if not raw_url or not raw_url.startswith("http"):
         return raw_url
 
-    # 1. If it's an Amazon link and we have our direct Amazon Tag, skip Cuelinks & shorten directly
+    # 1. Amazon Direct Affiliate Tag + is.gd shortener
     if "amazon.in" in raw_url and AMAZON_AFFILIATE_TAG:
         try:
             r_short = requests.get(
@@ -76,13 +89,12 @@ def convert_to_affiliate_link(raw_url):
                 timeout=6
             )
             if r_short.status_code == 200 and r_short.text.startswith("http"):
-                print(f"   🔗 Amazon Direct Affiliate Short Link: {r_short.text.strip()}", flush=True)
                 return r_short.text.strip()
         except Exception:
             pass
         return raw_url
 
-    # 2. For FirstCry (or if no Amazon tag is set), convert via Cuelinks API v3
+    # 2. Cuelinks API v3 for FirstCry / others
     if CUELINKS_API_KEY:
         v3_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
         v3_headers = {
@@ -98,32 +110,11 @@ def convert_to_affiliate_link(raw_url):
                 data_obj = resp_json.get("data") if isinstance(resp_json.get("data"), dict) else resp_json
                 cuelink = data_obj.get("short_url") or data_obj.get("tracking_url") or data_obj.get("url")
                 if cuelink and cuelink != raw_url:
-                    print(f"   🔗 Cuelinks v3 Success: {cuelink}", flush=True)
                     return cuelink
-            else:
-                print(f"   ⚠️ Cuelinks v3 HTTP {r.status_code}: {r.text[:120]}", flush=True)
-        except Exception as e:
-            print(f"   ⚠️ Cuelinks v3 request error: {e}", flush=True)
-
-        # Fallback to Cuelinks API v2
-        try:
-            v2_endpoint = "https://www.cuelinks.com/api/v2/links.json"
-            v2_headers = {
-                "Authorization": f"Token token={CUELINKS_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            v2_params = {"url": raw_url, "shorten": "true"}
-            r2 = requests.get(v2_endpoint, params=v2_params, headers=v2_headers, timeout=8)
-            if r2.status_code == 200:
-                resp2 = r2.json()
-                cuelink2 = resp2.get("short_url") or resp2.get("affiliate_url") or resp2.get("url")
-                if cuelink2 and cuelink2 != raw_url:
-                    print(f"   🔗 Cuelinks v2 Success: {cuelink2}", flush=True)
-                    return cuelink2
         except Exception:
             pass
 
-    # 3. Always shorten long URLs (> 42 chars) so Telegram messages stay compact
+    # 3. Fallback shortener
     if len(raw_url) > 42:
         try:
             r_short = requests.get(
@@ -138,7 +129,7 @@ def convert_to_affiliate_link(raw_url):
     return raw_url
 
 def clean_product_title(raw_title):
-    """Strips out FirstCry/Amazon UI noise and keeps only the clean model name."""
+    """Strips UI junk and keeps clean model name."""
     junk_patterns = [
         r"Added to Cart", r"Shortlisted", r"Already Viewed",
         r"\b\d+\s*Left\b", r"Bestseller", r"\bNew\b", r"INTERNATIONAL", r"Sponsored"
@@ -159,7 +150,6 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
     final_link = convert_to_affiliate_link(link)
     clean_title = clean_product_title(title)
 
-    # Clean store indicator included so buyers know where the deal is live
     caption_lines = [
         f"🚨 {clean_title} @ ₹{price:.0f} [{store}] -",
         f"{final_link}"
@@ -189,8 +179,6 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
             if r.status_code == 200:
                 print(f"   📸 Sent Photo Alert [{store}]: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
                 return
-            else:
-                print(f"   ⚠️ Photo send failed ({r.status_code}), falling back to text...", flush=True)
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
@@ -201,64 +189,13 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
             print(f"   ✅ Sent Text Alert [{store}]: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
-        else:
-            print(f"   ⚠️ Telegram Error: {r.text}", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
-def parse_amazon_html(html, store):
-    soup = BeautifulSoup(html, "html.parser")
-    items = soup.select("div[data-component-type='s-search-result'], div.s-result-item[data-asin]")
-    valid_items = [i for i in items if i.get("data-asin")]
-    print(f"   Found {len(valid_items)} product cards on Amazon.", flush=True)
-
-    matched_count = 0
-    for item in valid_items:
-        if matched_count >= 5:
-            break
-        try:
-            asin = item.get("data-asin", "").strip()
-            img_elem = item.select_one("img.s-image")
-
-            # Combine h2 tags or use image alt attribute so full model name is captured
-            h2_texts = [h.get_text(" ", strip=True) for h in item.select("h2") if h.get_text(strip=True)]
-            title = " ".join(h2_texts)
-            if len(title) <= 15 and img_elem and img_elem.get("alt"):
-                title = img_elem.get("alt").strip()
-
-            title = re.sub(r"^(Hot Wheels\s+)+", "Hot Wheels ", title, flags=re.I)
-
-            if "hot wheels" not in title.lower():
-                continue
-
-            price_elem = item.select_one(".a-price-whole")
-            if not price_elem:
-                continue
-
-            price_str = re.sub(r"[^\d.]", "", price_elem.get_text(strip=True)).rstrip(".")
-            if not price_str:
-                continue
-            price = float(price_str)
-
-            raw_link = f"https://www.amazon.in/dp/{asin}" if asin else ""
-            if not raw_link:
-                link_elem = item.select_one("h2 a") or item.select_one("a.a-link-normal.s-no-outline")
-                if not link_elem:
-                    continue
-                raw_link = link_elem.get("href", "")
-
-            clean_link = normalize_and_clean_url(raw_link, "https://www.amazon.in")
-            img_url = img_elem.get("src") if img_elem else None
-
-            send_telegram_deal(store, title, price, clean_link, image_url=img_url)
-            matched_count += 1
-            time.sleep(1)
-        except Exception:
-            continue
-    return len(valid_items)
-
 def scrape_deals():
-    print("🚀 Starting Mass-Market Deal Scraper v4 (Fixed Cuelinks + Clean URLs)...", flush=True)
+    print("🚀 Starting Mass-Market Deal Scraper v5 (Cache-Enabled)...", flush=True)
+    seen_deals = load_seen_deals()
+    new_seen_count = 0
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -278,13 +215,9 @@ def scrape_deals():
             timezone_id="Asia/Kolkata",
             extra_http_headers={
                 "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"'
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
             }
         )
-        
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
@@ -295,40 +228,56 @@ def scrape_deals():
 
             try:
                 if "amazon" in store.lower():
-                    print("   [Amazon] Warming up session on homepage...", flush=True)
                     page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
                     time.sleep(random.uniform(2.0, 3.5))
-
-                    response = page.goto(url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
+                    page.goto(url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
                     time.sleep(3)
-                    status_code = response.status if response else "Unknown"
-                    print(f"   [Debug] HTTP {status_code} | Page Title: '{page.title()}'", flush=True)
 
-                    count = parse_amazon_html(page.content(), store)
+                    soup = BeautifulSoup(page.content(), "html.parser")
+                    items = soup.select("div[data-component-type='s-search-result'], div.s-result-item[data-asin]")
+                    valid_items = [i for i in items if i.get("data-asin")]
+                    print(f"   Found {len(valid_items)} product cards on Amazon.", flush=True)
 
-                    if count == 0:
-                        print("   [Amazon] Retrying via mobile user-agent session...", flush=True)
-                        s = requests.Session()
-                        s.headers.update({
-                            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-                            "Accept-Language": "en-IN,en-GB;q=0.9",
-                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                        })
-                        s.get("https://www.amazon.in/", timeout=15)
-                        time.sleep(1)
-                        r_mob = s.get(url, timeout=20)
-                        print(f"   [Debug Mobile Fallback] HTTP {r_mob.status_code}", flush=True)
-                        if r_mob.status_code == 200:
-                            parse_amazon_html(r_mob.text, store)
+                    matched_count = 0
+                    for item in valid_items:
+                        if matched_count >= 5:
+                            break
+                        try:
+                            asin = item.get("data-asin", "").strip()
+                            if not asin or asin in seen_deals:
+                                continue # Skip already seen deals
+
+                            img_elem = item.select_one("img.s-image")
+                            h2_texts = [h.get_text(" ", strip=True) for h in item.select("h2") if h.get_text(strip=True)]
+                            title = " ".join(h2_texts)
+                            if len(title) <= 15 and img_elem and img_elem.get("alt"):
+                                title = img_elem.get("alt").strip()
+
+                            title = re.sub(r"^(Hot Wheels\s+)+", "Hot Wheels ", title, flags=re.I)
+                            if "hot wheels" not in title.lower():
+                                continue
+
+                            price_elem = item.select_one(".a-price-whole")
+                            if not price_elem:
+                                continue
+
+                            price = float(re.sub(r"[^\d.]", "", price_elem.get_text(strip=True)).rstrip("."))
+                            clean_link = f"https://www.amazon.in/dp/{asin}"
+                            img_url = img_elem.get("src") if img_elem else None
+
+                            send_telegram_deal(store, title, price, clean_link, image_url=img_url)
+                            seen_deals.add(asin)
+                            new_seen_count += 1
+                            matched_count += 1
+                            time.sleep(1)
+                        except Exception:
+                            continue
 
                 elif "firstcry" in store.lower():
-                    response = page.goto(url, timeout=45000, wait_until="domcontentloaded")
+                    page.goto(url, timeout=45000, wait_until="domcontentloaded")
                     time.sleep(4)
                     page.evaluate("window.scrollBy(0, 1000)")
                     time.sleep(2)
-
-                    status_code = response.status if response else "Unknown"
-                    print(f"   [Debug] HTTP {status_code} | Page Title: '{page.title()}'", flush=True)
 
                     soup = BeautifulSoup(page.content(), "html.parser")
                     items = soup.select("div.list_block, div.lft.list_cel, div.main_prod_box, li.child_block")
@@ -339,6 +288,16 @@ def scrape_deals():
                         if matched_count >= 5:
                             break
                         try:
+                            link_tag = item.find("a", href=re.compile(r"/hot-wheels|/product-detail", re.I)) or item.find("a", href=True)
+                            if not link_tag:
+                                continue
+                            clean_link = normalize_and_clean_url(link_tag["href"], "https://www.firstcry.com")
+                            
+                            # Use product URL slug as unique cache key
+                            deal_key = clean_link.split("?")[0]
+                            if not deal_key or deal_key in seen_deals:
+                                continue # Skip already seen deals
+
                             title = ""
                             for a_tag in item.find_all("a", href=True):
                                 t_attr = a_tag.get("title", "").strip()
@@ -358,13 +317,6 @@ def scrape_deals():
                             if "hot wheels" not in title.lower():
                                 continue
 
-                            link_tag = item.find("a", href=re.compile(r"/hot-wheels|/product-detail", re.I)) or item.find("a", href=True)
-                            if not link_tag:
-                                continue
-
-                            # Clean FirstCry URL properly so '//www.firstcry.com' becomes 'https://www.firstcry.com'
-                            clean_link = normalize_and_clean_url(link_tag["href"], "https://www.firstcry.com")
-
                             img_url = None
                             if img_elem:
                                 for attr in ["src", "data-src", "data-original"]:
@@ -375,7 +327,6 @@ def scrape_deals():
 
                             full_card_text = item.get_text(" ", strip=True)
                             price = 0.0
-
                             pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s*\(\d+%\s*Off\)", full_card_text, re.I)
                             pm_club = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club Price", full_card_text, re.I)
 
@@ -394,6 +345,8 @@ def scrape_deals():
                                 continue
 
                             send_telegram_deal(store, title, price, clean_link, image_url=img_url)
+                            seen_deals.add(deal_key)
+                            new_seen_count += 1
                             matched_count += 1
                             time.sleep(1)
                         except Exception:
@@ -403,7 +356,10 @@ def scrape_deals():
                 print(f"⚠️ Error scraping {store}: {e}", flush=True)
 
         browser.close()
-    print("\n🏁 Deal scan complete.", flush=True)
+
+    # Save updated cache back to file
+    save_seen_deals(seen_deals)
+    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new deals to cache.", flush=True)
 
 if __name__ == "__main__":
     scrape_deals()
