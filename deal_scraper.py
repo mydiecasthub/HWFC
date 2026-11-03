@@ -83,12 +83,12 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
 
     if "firstcry" in store.lower():
         caption_lines.append(
-            "\n📍 It may show as \"Out of Stock\" when you first open the link. "
-            "Don't worry! After clicking the link, go to your Profile section "
-            "and add the product to your cart from there"
+            "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
+            "Profile → Recently Viewed, and click Add to Cart from there!"
         )
+    
 
-    caption_lines.append("\n🚨 Share with your collector buddies!")
+    caption_lines.append("\n🚨 Spread the word among your fellow collectors! 🚗")
     caption = "\n".join(caption_lines)
 
     try:
