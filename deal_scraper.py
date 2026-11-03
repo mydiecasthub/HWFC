@@ -18,7 +18,7 @@ AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")
 
 CACHE_FILE = "seen_deals.json"
 
-# MRP Rules Dictionary (Updated with correct Majorette tiers)
+# MRP Rules Dictionary
 MRP_RULES = {
     "Hot Wheels": {
         "mainline": 179,
@@ -119,24 +119,20 @@ def classify_and_check_mrp(brand, title, price):
             return price <= MRP_RULES["Hot Wheels"]["silver_or_pop"], MRP_RULES["Hot Wheels"]["silver_or_pop"]
         else:
             return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
-            
     elif brand == "Matchbox":
         if "moving parts" in t:
             return price <= MRP_RULES["Matchbox"]["moving_parts"], MRP_RULES["Matchbox"]["moving_parts"]
         else:
             return price <= MRP_RULES["Matchbox"]["mainline"], MRP_RULES["Matchbox"]["mainline"]
-            
     elif brand == "Majorette":
-        # Disambiguating Majorette tiers using keywords + price brackets
         if any(k in t for k in ["showcase", "display showcase"]) or price > 650:
-            expected = MRP_RULES["Majorette"]["collection"] # ₹899
+            expected = MRP_RULES["Majorette"]["collection"]
         elif any(k in t for k in ["deluxe", "collector box"]) or (price > 450 and price <= 650):
-            expected = MRP_RULES["Majorette"]["deluxe"] # ₹599
+            expected = MRP_RULES["Majorette"]["deluxe"]
         elif any(k in t for k in ["blister", "vintage", "jdm legends", "mercedes-amg", "racing", "tune-ups", "castheads", "porsche"]) or (price > 250 and price <= 450):
-            expected = MRP_RULES["Majorette"]["premium"] # ₹399[cite: 9]
+            expected = MRP_RULES["Majorette"]["premium"]
         else:
-            expected = MRP_RULES["Majorette"]["street"] # ₹179
-            
+            expected = MRP_RULES["Majorette"]["street"]
         return price <= expected, expected
 
     return False, None
@@ -277,7 +273,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 def scrape_deals():
-    print("🚀 Starting Majorette-Updated MRP Deal Scraper...", flush=True)
+    print("🚀 Starting In-Stock Filtered Deal Scraper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     
@@ -325,6 +321,11 @@ def scrape_deals():
                                 continue
 
                             card_text = card.inner_text()
+                            
+                            # Filter out out of stock items
+                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
+                                continue
+
                             if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                 continue
 
@@ -364,14 +365,21 @@ def scrape_deals():
                     page.evaluate("window.scrollBy(0, 1000)")
                     time.sleep(2)
 
-                    product_elements = page.locator("div.list_block, div.lft.list_cel, div.main_prod_box, li.child_block")
+                    product_elements = page.locator("div.lft.list_cel, div.list_block, li.child_block")
                     count = product_elements.count()
                     print(f"   Found {count} product cards on FirstCry.", flush=True)
 
                     for i in range(count):
                         try:
                             card = product_elements.nth(i)
+                            card.scroll_into_view_if_needed()
+                            
                             card_text = card.inner_text()
+                            
+                            # Filter out out of stock items
+                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
+                                continue
+
                             if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                 continue
 
@@ -425,7 +433,7 @@ def scrape_deals():
         browser.close()
 
     save_seen_deals(seen_deals)
-    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new valid deals to cache.", flush=True)
+    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new in-stock deals to cache.", flush=True)
 
 if __name__ == "__main__":
     scrape_deals()
