@@ -137,11 +137,100 @@ def classify_and_check_mrp(brand, title, price):
 
     return False, None
 
-def extract_coupon(card_text):
-    coupon_match = re.search(r"(?:coupon|code|save)\s*:?\s*([A-Z0-9]{4,12})", card_text, re.I)
-    if coupon_match:
-        return coupon_match.group(1)
+def extract_amazon_coupon(card_text):
+    """Extracts Amazon promo codes or clippable coupon savings."""
+    # Check for specific promo code: "with code ABC1234"
+    code_match = re.search(r"(?:with\s+coupon|use\s+code|with\s+code|promo\s+code)\s*:?\s*([A-Z0-9]{5,12})\b", card_text, re.I)
+    if code_match and code_match.group(1).upper() not in ["COUPON", "APPLIED", "SAVINGS", "DETAILS"]:
+        return code_match.group(1).upper()
+    
+    # Check for Amazon checkbox coupon: "Save ₹50 with coupon" or "Save 10% with coupon"
+    clip_match = re.search(r"(Save\s+(?:₹\s*\d+|\d+%)\s+with\s+coupon)", card_text, re.I)
+    if clip_match:
+        return f"{clip_match.group(1)} (Clip on page)"
     return None
+
+def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
+    """Opens FirstCry Product Detail Page to grab live Coupon Codes, Post-Coupon Price, and a clean screenshot."""
+    pdp_page = context.new_page()
+    coupon_code = None
+    best_price = fallback_price
+    screenshot_path = None
+
+    try:
+        pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
+        time.sleep(2.5)
+
+        pdp_text = pdp_page.locator("body").inner_text()
+
+        # 1. Look for explicit coupon codes on FirstCry PDP (e.g. "Code: T37JRP", "Use Code : FCTOYS")
+        code_patterns = [
+            r"(?:Use\s+Code|Coupon\s+Code|Promo\s+Code|Code)\s*[:\-]?\s*\b([A-Z0-9]{5,12})\b",
+            r"\b([A-Z0-9]{5,10})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout)",
+            r"Apply\s+code\s+\b([A-Z0-9]{5,12})\b"
+        ]
+        ignore_words = {
+            "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE", 
+            "CHECKOUT", "SAVINGS", "DISCOUNT", "ELIGIBLE", "PRODUCTS", "MINIMUM"
+        }
+
+        for pat in code_patterns:
+            matches = re.findall(pat, pdp_text)
+            for m in matches:
+                candidate = m.strip().upper()
+                # Valid FirstCry codes are uppercase alphanumeric and usually contain at least one letter & digit or 5+ chars
+                if candidate not in ignore_words and any(c.isalpha() for c in candidate):
+                    coupon_code = candidate
+                    break
+            if coupon_code:
+                break
+
+        # Also check specific FirstCry offer DOM elements if regex missed it
+        if not coupon_code:
+            offer_elems = pdp_page.locator(".cpn_code, .offer_code, .promo-code, .coup_code, [class*='coupon'], [class*='offer']")
+            for idx in range(min(offer_elems.count(), 8)):
+                el_txt = offer_elems.nth(idx).inner_text()
+                m_dom = re.search(r"\b([A-Z]{2,6}[0-9]{2,6}[A-Z0-9]*)\b", el_txt)
+                if m_dom and m_dom.group(1) not in ignore_words:
+                    coupon_code = m_dom.group(1)
+                    break
+
+        # 2. Check if the coupon gives a percentage off (e.g., "Flat 37% Off* ... Use Code: T37JRP")
+        if coupon_code:
+            pct_match = re.search(rf"(\d{{2}})%\s*Off.*?(?:{coupon_code})", pdp_text, re.I | re.S)
+            if not pct_match:
+                pct_match = re.search(rf"(?:{coupon_code}).*?(\d{{2}})%\s*Off", pdp_text, re.I | re.S)
+            if pct_match:
+                pct = float(pct_match.group(1))
+                if 10 <= pct <= 70 and expected_mrp:
+                    calculated_price = round(expected_mrp * (1 - pct / 100.0))
+                    if calculated_price < best_price:
+                        best_price = calculated_price
+
+        # Also check for "Best Price: ₹566" or "Get it for ₹566" on PDP
+        best_p_match = re.search(r"(?:Best\s+Price|Get\s+it\s+(?:for|at)|After\s+Coupon|Club\s+Price)\s*[:₹Rs.]*\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
+        if best_p_match:
+            candidate_p = float(best_p_match.group(1))
+            if 40 < candidate_p < best_price:
+                best_price = candidate_p
+
+        # 3. Take a clean, well-aligned screenshot of the PDP main product overview card
+        pdp_container = pdp_page.locator("div.prod-info-wrap, div.pdp-main, div.product-detail-sec, div.main_prod_sec").first
+        screenshot_path = f"temp_fc_pdp_{int(time.time()*1000)}.png"
+        if pdp_container.count() > 0:
+            pdp_container.scroll_into_view_if_needed()
+            time.sleep(0.3)
+            pdp_container.screenshot(path=screenshot_path)
+        else:
+            # Fallback to viewport clip of top product area
+            pdp_page.screenshot(path=screenshot_path, clip={"x": 50, "y": 80, "width": 1000, "height": 580})
+
+    except Exception as e:
+        print(f"   ⚠️ FirstCry PDP check warning: {e}", flush=True)
+    finally:
+        pdp_page.close()
+
+    return coupon_code, best_price, screenshot_path
 
 def normalize_and_clean_url(raw_url, domain_prefix=""):
     if not raw_url:
@@ -229,7 +318,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
     final_link = convert_to_affiliate_link(link)
     clean_title = clean_product_title(title)
 
-    mrp_status = "At MRP" if price == expected_mrp else "Below MRP"
+    mrp_status = "At MRP" if round(price) == round(expected_mrp) else "Below MRP"
 
     caption_lines = [
         f"🚨 {clean_title} @ ₹{price:.0f} [{store}] - *{mrp_status}*",
@@ -237,7 +326,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
     ]
 
     if coupon:
-        caption_lines.append(f"\n📍 Coupon: {coupon}")
+        caption_lines.append(f"\n📍 Coupon: `{coupon}`")
 
     if "firstcry" in store.lower():
         caption_lines.append(
@@ -256,7 +345,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status}) | Coupon: {coupon}", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -268,12 +357,12 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status}) | Coupon: {coupon}", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 def scrape_deals():
-    print("🚀 Starting Aligned & In-Stock Filtered Deal Scraper...", flush=True)
+    print("🚀 Starting Deep Coupon & MRP-Validated Deal Scraper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     
@@ -320,17 +409,13 @@ def scrape_deals():
                             if not asin or asin in seen_deals:
                                 continue
 
-                            # Scroll Amazon card into view so lazy-loaded images & badges align properly
                             card.scroll_into_view_if_needed()
                             time.sleep(0.3)
 
                             card_text = card.inner_text()
-                            
-                            # Skip out-of-stock items
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
                                 continue
 
-                            # Extract clean title from h2 tag instead of dumping entire card text
                             h2_el = card.locator("h2").first
                             title_text = h2_el.inner_text().strip() if h2_el.count() > 0 else card_text.split("\n")[0]
 
@@ -350,9 +435,8 @@ def scrape_deals():
                             if not is_valid_mrp:
                                 continue
 
-                            coupon = extract_coupon(card_text)
+                            coupon = extract_amazon_coupon(card_text)
 
-                            # Target inner container (.s-card-container) for tight, aligned screenshot
                             inner_box = card.locator(".s-card-container").first
                             target_shot = inner_box if inner_box.count() > 0 else card
 
@@ -390,8 +474,6 @@ def scrape_deals():
                             time.sleep(0.3)
                             
                             card_text = card.inner_text()
-                            
-                            # Skip out-of-stock items
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
                                 continue
 
@@ -410,7 +492,6 @@ def scrape_deals():
                             if not deal_key or deal_key in seen_deals:
                                 continue
 
-                            # Extract clean title from link title attribute or heading
                             title_text = link_el.get_attribute("title") or ""
                             if not title_text:
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
@@ -428,16 +509,27 @@ def scrape_deals():
                                 continue
 
                             brand = determine_brand(title_text)
-                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, title_text, price)
-                            if not is_valid_mrp:
+                            # Allow slightly above MRP on search card in case PDP coupon brings it below MRP
+                            _, expected_mrp = classify_and_check_mrp(brand, title_text, price)
+                            if not expected_mrp:
                                 continue
 
-                            coupon = extract_coupon(card_text)
+                            # Visit FirstCry PDP to fetch the real Coupon Code (e.g. T37JRP) & post-coupon price!
+                            coupon, final_price, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
 
-                            img_path = f"temp_fc_{i}.png"
-                            card.screenshot(path=img_path)
+                            if final_price > expected_mrp:
+                                if pdp_img_path and os.path.exists(pdp_img_path):
+                                    os.remove(pdp_img_path)
+                                continue
 
-                            send_telegram_deal(store, title_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+                            # Use PDP screenshot if available, else search card screenshot
+                            if pdp_img_path and os.path.exists(pdp_img_path):
+                                img_path = pdp_img_path
+                            else:
+                                img_path = f"temp_fc_{i}.png"
+                                card.screenshot(path=img_path)
+
+                            send_telegram_deal(store, title_text, final_price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
