@@ -21,26 +21,44 @@ CACHE_FILE = "seen_deals.json"
 
 # MRP Rules Dictionary (Fully calibrated to exact retail MRPs)
 MRP_RULES = {
-   "Hot Wheels": {
-        "mainline": 179,
-        "5_pack": 899,
-        "premium_5_pack": 3999,
-        "premium_single": 549,
-        "silver_or_pop": 299,   # <-- Corrected to ₹299 MRP
-        "team_transport": 1499,
-        "diorama_or_box_set": 2499,
-        "monster_truck": 399,
-        "f1_premium": 799,
+    "Hot Wheels": {
+        # Basics
+        "mainline": 179,               # Mainlines, Basic Themed Assortments, Mystery Models
+        "5_pack": 899,                 # Standard 5-Packs
+        "color_reveal": 999,           # Color Reveal 2-Pack Drum
+        
+        # Silver-Label Premium
+        "silver_series": 299,          # Automotive, Vintage Racing, Celebrations, Entertainment, Batman, Ultra Hots, Neon Speeders
+        "themed_6_pack": 1999,         # Silver Series / Themed 6-Packs (Japanese, Euro, ZAMAC, Streets of Japan)
+        
+        # Gold-Label Premium
+        "premium_single": 549,         # Boulevard, Car Culture, Pop Culture, Premium Fast & Furious
+        "car_culture_2_pack": 1099,    # Car Culture 2-Packs
+        "team_transport": 1499,        # Team Transport
+        "diorama_or_box_set": 2999,    # Premium Display Sets / Collector Diorama Sets
+        "premium_5_pack": 3999,        # Fast & Furious / Car Culture 5-Car Bundles
+        
+        # Other Lines
+        "monster_truck": 399,          # 1:64 Monster Trucks
+        "f1_premium": 699,             # Formula 1 Premium
     },
     "Matchbox": {
-        "mainline": 179,  # Matchbox mainline MRP
-        "moving_parts": 399,
+        "mainline": 179,               # Basic Mainlines & Themed singles (e.g. Matchbox The Movie)
+        "moving_parts": 399,           # Moving Parts (299 older / 399 current MRP)
+        "working_rigs": 599,           # Real Working Rigs & Adventure Packs
+        "collectors": 649,             # Matchbox Collectors Series (True Grip / Metal Base)
+        "5_pack": 899,                 # Standard 5-Pack
+        "convoy": 999,                 # Matchbox Convoys (Truck + Trailer)
+        "8_or_9_pack": 1599,           # 8-Pack / 9-Pack Gift Sets
     },
     "Majorette": {
-        "street": 179,
-        "premium_or_moving_parts": 399,
-        "deluxe": 599,
-        "collection": 899,
+        "street": 199,                 # Basic Street Cars (179 older / 199 current MRP)
+        "premium": 399,                # Premium, Racing, Vintage, JDM Legends, CastHeads, Color Changers, Showroom
+        "deluxe": 599,                 # Deluxe Cars (with collector box), Monster Rockerz, City Bus/Trailer
+        "tune_ups": 699,               # Tune-Ups Series
+        "street_5_pack": 899,          # 5-Piece Basic Street Cars Set
+        "trailer_set": 1199,           # Trailer + 2 Die-Cast Cars Set
+        "edition_5_pack": 1699,        # 5-Piece Porsche / Black / Vintage / Racing / JDM Gift Packs
     }
 }
 
@@ -82,60 +100,122 @@ def determine_brand(title):
 def classify_and_check_mrp(brand, title, price):
     t = title.lower()
     if any(skip in t for skip in [
-        "case of", "collector case", "blind box", "track", "playset", "play set", 
-        "protector", "lapel pin", "magnet", "rotiform", "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18"
+        "case of", "collector case", "blind box", "track", "playset", "play set", "petrol station",
+        "garage", "carry case", "launcher", "protector", "lapel pin", "magnet", "rotiform",
+        "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18", "red line club", "rlc", "elite 64"
     ]):
         return False, None
 
-    # Check for Premium 5-packs / Collector bundles first
-    if brand == "Hot Wheels" and any(k in t for k in ["fast & furious", "fast and furious", "car culture bundle", "premium bundle", "collector set"]) and ("5-pack" in t or "5 pack" in t or "5 cars" in t):
-        return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
+    # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL SERIES ---
+    if brand == "Hot Wheels":
+        if any(k in t for k in ["fast & furious", "fast and furious", "car culture", "premium bundle"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5"]):
+            return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
 
-    for num_cars in range(2, 11):
-        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}pc" in t or 
-            f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
-            f"{num_cars} cars" in t or f"{num_cars} -car" in t):
-            if brand == "Hot Wheels" and any(k in t for k in ["formula 1", "f1"]):
-                per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
-            elif brand == "Hot Wheels" and any(k in t for k in ["car culture", "boulevard", "premium", "pop culture"]):
-                per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
-            elif brand == "Hot Wheels" and ("silver series" in t or "performance trucks" in t or "streets of japan" in t):
-                per_car_mrp = MRP_RULES["Hot Wheels"]["silver_or_pop"]
+        if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary"]):
+            return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
+
+        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars"]) and any(p in t for p in ["car culture", "premium"]):
+            return price <= MRP_RULES["Hot Wheels"]["car_culture_2_pack"], MRP_RULES["Hot Wheels"]["car_culture_2_pack"]
+
+        if "color reveal" in t:
+            return price <= MRP_RULES["Hot Wheels"]["color_reveal"], MRP_RULES["Hot Wheels"]["color_reveal"]
+
+        if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter"]):
+            return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
+
+        if any(k in t for k in ["diorama", "display set", "collector set", "box set", "heritage gift pack"]):
+            return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
+
+        if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack"]) and "silver" not in t and "premium" not in t:
+            return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
+
+    elif brand == "Matchbox":
+        if any(k in t for k in ["8 pack", "8-pack", "pack of 8", "9 pack", "9-pack", "pack of 9"]):
+            return price <= MRP_RULES["Matchbox"]["8_or_9_pack"], MRP_RULES["Matchbox"]["8_or_9_pack"]
+        if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack"]):
+            return price <= MRP_RULES["Matchbox"]["5_pack"], MRP_RULES["Matchbox"]["5_pack"]
+        if "convoy" in t:
+            return price <= MRP_RULES["Matchbox"]["convoy"], MRP_RULES["Matchbox"]["convoy"]
+        if any(k in t for k in ["working rigs", "working rig", "adventure pack"]):
+            return price <= MRP_RULES["Matchbox"]["working_rigs"], MRP_RULES["Matchbox"]["working_rigs"]
+
+    elif brand == "Majorette":
+        # Majorette 5-Piece Gift Packs (Edition vs Street)
+        if any(k in t for k in ["5 piece", "5-piece", "5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "gift set", "car set"]):
+            if any(ed in t for ed in ["porsche", "black edition", "vintage", "jdm", "racing", "mercedes", "lamborghini", "deluxe", "premium", "limited", "color changer"]):
+                return price <= MRP_RULES["Majorette"]["edition_5_pack"], MRP_RULES["Majorette"]["edition_5_pack"]
             else:
-                per_car_mrp = MRP_RULES["Hot Wheels"]["mainline"]
+                return price <= MRP_RULES["Majorette"]["street_5_pack"], MRP_RULES["Majorette"]["street_5_pack"]
+        # Majorette Trailer + 2 Cars Sets
+        if "trailer" in t and any(k in t for k in ["2 die", "2 cars", "wagon"]):
+            return price <= MRP_RULES["Majorette"]["trailer_set"], MRP_RULES["Majorette"]["trailer_set"]
+
+    # --- 2. GENERAL MULTI-PACK MULTIPLIER LOOP (For seller bundles of 2 to 10 cars) ---
+    for num_cars in range(2, 11):
+        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}pc" in t or 
+            f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
+            f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
+            if brand == "Hot Wheels":
+                if any(k in t for k in ["formula 1", "f1"]) and "premium" in t:
+                    per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
+                elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture"]):
+                    per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
+                elif any(k in t for k in [
+                    "silver series", "silver label", "ultra hots", "neon speeders", "vintage racing",
+                    "celebrations", "pantone", "performance trucks", "streets of japan", "batman", "fast & furious", "fast and furious"
+                ]):
+                    per_car_mrp = MRP_RULES["Hot Wheels"]["silver_series"]
+                else:
+                    per_car_mrp = MRP_RULES["Hot Wheels"]["mainline"]
+            elif brand == "Matchbox":
+                per_car_mrp = MRP_RULES["Matchbox"]["moving_parts"] if "moving parts" in t else MRP_RULES["Matchbox"]["mainline"]
+            else:
+                if "deluxe" in t:
+                    per_car_mrp = MRP_RULES["Majorette"]["deluxe"]
+                elif any(k in t for k in ["premium", "racing", "vintage", "jdm", "castheads", "color changer"]):
+                    per_car_mrp = MRP_RULES["Majorette"]["premium"]
+                else:
+                    per_car_mrp = MRP_RULES["Majorette"]["street"]
             expected_mrp = per_car_mrp * num_cars
             return price <= expected_mrp, expected_mrp
 
+    # --- 3. SINGLE CARDS CLASSIFICATION ---
     if brand == "Hot Wheels":
-        if "mainline" in t and not any(k in t for k in ["5 pack", "5-pack", "gift pack", "premium", "silver", "f1"]):
-            return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
-        if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "camion de transport"]):
-            return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
-        elif any(k in t for k in ["diorama", "box set", "collector set", "heritage gift pack"]):
-            return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
-        elif any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack"]) and "silver" not in t and "premium" not in t:
-            return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
-        elif "monster truck" in t:
+        if "monster truck" in t:
             return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
         elif any(k in t for k in ["formula 1", "f1"]) and "premium" in t:
             return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
-        elif any(k in t for k in ["premium", "car culture", "boulevard", "pop culture", "pop culture"]):
+        elif any(k in t for k in ["boulevard", "car culture", "pop culture", "real riders", "metal/metal"]) or (
+            "premium" in t and "silver" not in t
+        ):
             return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
-        elif "silver series" in t or "pantone" in t or "performance trucks" in t:
-            return price <= MRP_RULES["Hot Wheels"]["silver_or_pop"], MRP_RULES["Hot Wheels"]["silver_or_pop"]
+        elif any(k in t for k in [
+            "silver series", "silver label", "ultra hots", "neon speeders", "vintage racing",
+            "celebrations", "themed entertainment", "batman", "pantone", "performance trucks",
+            "streets of japan", "anniversary", "fast & furious", "fast and furious", "gran turismo", "forza"
+        ]):
+            return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
         else:
             return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
+
     elif brand == "Matchbox":
-        if "moving parts" in t:
+        if "collectors" in t or "true grip" in t:
+            return price <= MRP_RULES["Matchbox"]["collectors"], MRP_RULES["Matchbox"]["collectors"]
+        elif "moving parts" in t:
             return price <= MRP_RULES["Matchbox"]["moving_parts"], MRP_RULES["Matchbox"]["moving_parts"]
         else:
             return price <= MRP_RULES["Matchbox"]["mainline"], MRP_RULES["Matchbox"]["mainline"]
+
     elif brand == "Majorette":
-        if any(k in t for k in ["showcase", "display showcase"]) or price > 650:
-            expected = MRP_RULES["Majorette"]["collection"]
-        elif any(k in t for k in ["deluxe", "collector box"]) or (price > 450 and price <= 650):
+        if any(k in t for k in ["tune-ups", "tune ups", "tune up"]):
+            expected = MRP_RULES["Majorette"]["tune_ups"]
+        elif any(k in t for k in ["deluxe", "collector box", "monster rockerz", "city bus", "city trailer", "aeroplane", "airplane"]):
             expected = MRP_RULES["Majorette"]["deluxe"]
-        elif any(k in t for k in ["blister", "vintage", "jdm legends", "mercedes-amg", "racing", "tune-ups", "castheads", "porsche"]) or (price > 250 and price <= 450):
+        elif any(k in t for k in [
+            "premium", "racing", "vintage", "jdm", "castheads", "cast heads", "color changer",
+            "colour changer", "showroom", "the originals", "volkswagen", "porsche", "mercedes-amg",
+            "black edition", "limited edition", "japanese", "italian"
+        ]):
             expected = MRP_RULES["Majorette"]["premium"]
         else:
             expected = MRP_RULES["Majorette"]["street"]
