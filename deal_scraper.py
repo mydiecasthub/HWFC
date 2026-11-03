@@ -13,6 +13,7 @@ sys.stdout.reconfigure(line_buffering=True)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
+AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")  # Optional: e.g. mydiecasthub-21
 
 TARGET_URLS = [
     {
@@ -25,27 +26,103 @@ TARGET_URLS = [
     }
 ]
 
+def normalize_and_clean_url(raw_url, domain_prefix=""):
+    """
+    Fixes '//www.firstcry.com' double-domain bugs and strips massive Amazon tracking strings.
+    """
+    if not raw_url:
+        return ""
+    
+    url = raw_url.strip()
+
+    # 1. Fix protocol-relative URLs (e.g. //www.firstcry.com/...)
+    if url.startswith("//"):
+        url = "https:" + url
+    elif not url.startswith("http"):
+        url = f"{domain_prefix.rstrip('/')}/{url.lstrip('/')}"
+
+    # Fix accidental double domain if already present
+    url = re.sub(r"^https?://[^/]+//+", "https://", url)
+
+    # 2. Strip Amazon links down to clean /dp/ASIN format
+    if "amazon.in" in url:
+        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
+        if asin_match:
+            asin = asin_match.group(1)
+            base_amzn = f"https://www.amazon.in/dp/{asin}"
+            if AMAZON_AFFILIATE_TAG:
+                return f"{base_amzn}?tag={AMAZON_AFFILIATE_TAG}"
+            return base_amzn
+
+    # 3. Clean FirstCry query parameters
+    if "firstcry.com" in url:
+        return url.split("?")[0]
+
+    return url
+
 def convert_to_affiliate_link(raw_url):
-    """Converts a raw URL into a tracked Cuelinks affiliate link using API v3."""
-    if not raw_url or not raw_url.startswith("http") or not CUELINKS_API_KEY:
+    """
+    Converts a clean merchant URL into a short Cuelinks affiliate link (clnk.in).
+    Supports Cuelinks API v3 (nested 'data' JSON), API v2 fallback, and is.gd shortener fallback.
+    """
+    if not raw_url or not raw_url.startswith("http"):
         return raw_url
 
-    api_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
-    headers = {
-        "Authorization": f"Token {CUELINKS_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {"url": raw_url}
+    if CUELINKS_API_KEY:
+        # 1. Try Cuelinks API v3
+        v3_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
+        v3_headers = {
+            "Authorization": f"Token {CUELINKS_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        v3_payload = {"url": raw_url, "shorten": True}
 
-    try:
-        response = requests.post(api_endpoint, json=payload, headers=headers, timeout=5)
-        if response.status_code in [200, 201]:
-            data = response.json()
-            return data.get("tracking_url") or data.get("url", raw_url)
-        else:
-            print(f"⚠️ Cuelinks API Warning ({response.status_code}): {response.text}", flush=True)
-    except Exception as e:
-        print(f"⚠️ Failed to connect to Cuelinks API: {e}", flush=True)
+        try:
+            r = requests.post(v3_endpoint, json=v3_payload, headers=v3_headers, timeout=8)
+            if r.status_code in [200, 201]:
+                resp_json = r.json()
+                # Cuelinks v3 nests fields inside "data": {"short_url": "...", "tracking_url": "..."}
+                data_obj = resp_json.get("data") if isinstance(resp_json.get("data"), dict) else resp_json
+                cuelink = data_obj.get("short_url") or data_obj.get("tracking_url") or data_obj.get("url")
+                if cuelink and cuelink != raw_url:
+                    print(f"   🔗 Cuelinks v3 Success: {cuelink}", flush=True)
+                    return cuelink
+            else:
+                print(f"   ⚠️ Cuelinks v3 HTTP {r.status_code}: {r.text[:120]}", flush=True)
+        except Exception as e:
+            print(f"   ⚠️ Cuelinks v3 request error: {e}", flush=True)
+
+        # 2. Fallback to Cuelinks API v2 (in case the key is a v2 key or missing v3 write:links scope)
+        try:
+            v2_endpoint = "https://www.cuelinks.com/api/v2/links.json"
+            v2_headers = {
+                "Authorization": f"Token token={CUELINKS_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            v2_params = {"url": raw_url, "shorten": "true"}
+            r2 = requests.get(v2_endpoint, params=v2_params, headers=v2_headers, timeout=8)
+            if r2.status_code == 200:
+                resp2 = r2.json()
+                cuelink2 = resp2.get("short_url") or resp2.get("affiliate_url") or resp2.get("url")
+                if cuelink2 and cuelink2 != raw_url:
+                    print(f"   🔗 Cuelinks v2 Success: {cuelink2}", flush=True)
+                    return cuelink2
+        except Exception:
+            pass
+    else:
+        print("   ⚠️ CUELINKS_API_KEY secret is empty! Check GitHub Secrets.", flush=True)
+
+    # 3. Always shorten long URLs (> 42 chars) so Telegram messages stay compact
+    if len(raw_url) > 42:
+        try:
+            r_short = requests.get(
+                f"https://is.gd/create.php?format=simple&url={requests.utils.quote(raw_url)}",
+                timeout=6
+            )
+            if r_short.status_code == 200 and r_short.text.startswith("http"):
+                return r_short.text.strip()
+        except Exception:
+            pass
 
     return raw_url
 
@@ -53,13 +130,12 @@ def clean_product_title(raw_title):
     """Strips out FirstCry/Amazon UI noise and keeps only the clean model name."""
     junk_patterns = [
         r"Added to Cart", r"Shortlisted", r"Already Viewed",
-        r"\b\d+\s*Left\b", r"Bestseller", r"\bNew\b", r"INTERNATIONAL"
+        r"\b\d+\s*Left\b", r"Bestseller", r"\bNew\b", r"INTERNATIONAL", r"Sponsored"
     ]
     cleaned = raw_title
     for pattern in junk_patterns:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Cut off everything after age markers, descriptions, ratings, or size specs
     cleaned = re.split(
         r"\b\d+\s*\+?\s*Years?\b|Sizes?\s*:|Perfect for|Set of \d+|\(\d+\s*Ratings?\)|ADD TO CART|Club Price",
         cleaned,
@@ -72,7 +148,6 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
     final_link = convert_to_affiliate_link(link)
     clean_title = clean_product_title(title)
 
-    # Short format matching your reference screenshot
     caption_lines = [
         f"🚨 {clean_title}@{price:.0f} -",
         f"{final_link}"
@@ -86,13 +161,11 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
             "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
             "Profile → Recently Viewed, and click Add to Cart from there!"
         )
-    
 
-    caption_lines.append("\n🚨 Spread the word among your fellow collectors! 🚗")
+    caption_lines.append("\n🚨 Share with your collector buddies!")
     caption = "\n".join(caption_lines)
 
     try:
-        # Send Photo card first
         if image_url and image_url.startswith("http"):
             api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
             payload = {
@@ -107,7 +180,6 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
             else:
                 print(f"   ⚠️ Photo send failed ({r.status_code}), falling back to text...", flush=True)
 
-        # Fallback to text message
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
@@ -133,16 +205,22 @@ def parse_amazon_html(html, store):
         if matched_count >= 5:
             break
         try:
-            title_elem = item.select_one("h2 span") or item.select_one("h2")
-            price_elem = item.select_one(".a-price-whole")
-            link_elem = item.select_one("h2 a") or item.select_one("a.a-link-normal.s-no-outline")
+            asin = item.get("data-asin", "").strip()
             img_elem = item.select_one("img.s-image")
 
-            if not title_elem or not price_elem or not link_elem:
+            # Combine h2 tags or use image alt attribute so full model name is captured
+            h2_texts = [h.get_text(" ", strip=True) for h in item.select("h2") if h.get_text(strip=True)]
+            title = " ".join(h2_texts)
+            if len(title) <= 15 and img_elem and img_elem.get("alt"):
+                title = img_elem.get("alt").strip()
+
+            title = re.sub(r"^(Hot Wheels\s+)+", "Hot Wheels ", title, flags=re.I)
+
+            if "hot wheels" not in title.lower():
                 continue
 
-            title = title_elem.get_text(strip=True)
-            if "hot wheels" not in title.lower():
+            price_elem = item.select_one(".a-price-whole")
+            if not price_elem:
                 continue
 
             price_str = re.sub(r"[^\d.]", "", price_elem.get_text(strip=True)).rstrip(".")
@@ -150,13 +228,17 @@ def parse_amazon_html(html, store):
                 continue
             price = float(price_str)
 
-            link = link_elem.get("href", "")
-            if link and not link.startswith("http"):
-                link = f"https://www.amazon.in{link}"
+            raw_link = f"https://www.amazon.in/dp/{asin}" if asin else ""
+            if not raw_link:
+                link_elem = item.select_one("h2 a") or item.select_one("a.a-link-normal.s-no-outline")
+                if not link_elem:
+                    continue
+                raw_link = link_elem.get("href", "")
 
+            clean_link = normalize_and_clean_url(raw_link, "https://www.amazon.in")
             img_url = img_elem.get("src") if img_elem else None
 
-            send_telegram_deal(store, title, price, link, image_url=img_url)
+            send_telegram_deal(store, title, price, clean_link, image_url=img_url)
             matched_count += 1
             time.sleep(1)
         except Exception:
@@ -164,7 +246,7 @@ def parse_amazon_html(html, store):
     return len(valid_items)
 
 def scrape_deals():
-    print("🚀 Starting Mass-Market Deal Scraper v2 (Photo + Clean Text)...", flush=True)
+    print("🚀 Starting Mass-Market Deal Scraper v4 (Fixed Cuelinks + Clean URLs)...", flush=True)
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -201,12 +283,10 @@ def scrape_deals():
 
             try:
                 if "amazon" in store.lower():
-                    # Step 1: Visit Amazon homepage first to get valid session cookies & avoid 503
                     print("   [Amazon] Warming up session on homepage...", flush=True)
                     page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
                     time.sleep(random.uniform(2.0, 3.5))
 
-                    # Step 2: Navigate to search page with referer
                     response = page.goto(url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
                     time.sleep(3)
                     status_code = response.status if response else "Unknown"
@@ -214,7 +294,6 @@ def scrape_deals():
 
                     count = parse_amazon_html(page.content(), store)
 
-                    # Step 3: Fallback if 503 still occurs
                     if count == 0:
                         print("   [Amazon] Retrying via mobile user-agent session...", flush=True)
                         s = requests.Session()
@@ -248,7 +327,6 @@ def scrape_deals():
                         if matched_count >= 5:
                             break
                         try:
-                            # 1. Extract clean title from anchor title or image alt attribute
                             title = ""
                             for a_tag in item.find_all("a", href=True):
                                 t_attr = a_tag.get("title", "").strip()
@@ -268,15 +346,13 @@ def scrape_deals():
                             if "hot wheels" not in title.lower():
                                 continue
 
-                            # 2. Extract product link
                             link_tag = item.find("a", href=re.compile(r"/hot-wheels|/product-detail", re.I)) or item.find("a", href=True)
                             if not link_tag:
                                 continue
-                            link = link_tag["href"]
-                            if not link.startswith("http"):
-                                link = f"https://www.firstcry.com{link}"
 
-                            # 3. Extract product image URL
+                            # Clean FirstCry URL properly so '//www.firstcry.com' becomes 'https://www.firstcry.com'
+                            clean_link = normalize_and_clean_url(link_tag["href"], "https://www.firstcry.com")
+
                             img_url = None
                             if img_elem:
                                 for attr in ["src", "data-src", "data-original"]:
@@ -285,13 +361,10 @@ def scrape_deals():
                                         img_url = "https:" + val if val.startswith("//") else val
                                         break
 
-                            # 4. Extract accurate Sale Price (strictly >= ₹50 so it never picks '5' or '1')
                             full_card_text = item.get_text(" ", strip=True)
                             price = 0.0
 
-                            # Pattern A: Sale price right before MRP & (% Off) e.g., "3599.1 3999 (10% Off)"
                             pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s*\(\d+%\s*Off\)", full_card_text, re.I)
-                            # Pattern B: Price right before "Club Price:" e.g., "1399 Club Price: 1399"
                             pm_club = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club Price", full_card_text, re.I)
 
                             if pm_discount:
@@ -308,7 +381,7 @@ def scrape_deals():
                             if price < 50:
                                 continue
 
-                            send_telegram_deal(store, title, price, link, image_url=img_url)
+                            send_telegram_deal(store, title, price, clean_link, image_url=img_url)
                             matched_count += 1
                             time.sleep(1)
                         except Exception:
