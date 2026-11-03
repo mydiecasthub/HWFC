@@ -211,14 +211,14 @@ def convert_to_affiliate_link(raw_url):
 
 def clean_product_title(raw_title):
     junk_patterns = [
-        r"Added to Cart", r"Shortlisted", r"Already Viewed",
+        r"Added to Cart", r"Shortlisted", r"Already Viewed", r"Out of Stock", r"Notify Me",
         r"\b\d+\s*Left\b", r"Bestseller", r"\bNew\b", r"INTERNATIONAL", r"Sponsored"
     ]
     cleaned = raw_title
     for pattern in junk_patterns:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.split(
-        r"\b\d+\s*\+?\s*Years?\b|Sizes?\s*:|Perfect for|Set of \d+|\(\d+\s*Ratings?\)|ADD TO CART|Club Price",
+        r"\b\d+\s*\+?\s*Years?\b|Sizes?\s*:|Perfect for|Set of \d+|\(\d+\s*Ratings?\)|ADD TO CART|Club Price|M\.R\.P",
         cleaned,
         flags=re.IGNORECASE
     )[0]
@@ -273,7 +273,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 def scrape_deals():
-    print("🚀 Starting In-Stock Filtered Deal Scraper...", flush=True)
+    print("🚀 Starting Aligned & In-Stock Filtered Deal Scraper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     
@@ -320,13 +320,21 @@ def scrape_deals():
                             if not asin or asin in seen_deals:
                                 continue
 
+                            # Scroll Amazon card into view so lazy-loaded images & badges align properly
+                            card.scroll_into_view_if_needed()
+                            time.sleep(0.3)
+
                             card_text = card.inner_text()
                             
-                            # Filter out out of stock items
+                            # Skip out-of-stock items
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
                                 continue
 
-                            if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
+                            # Extract clean title from h2 tag instead of dumping entire card text
+                            h2_el = card.locator("h2").first
+                            title_text = h2_el.inner_text().strip() if h2_el.count() > 0 else card_text.split("\n")[0]
+
+                            if not any(b in title_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                 continue
 
                             price_elem = card.locator(".a-price-whole").first
@@ -337,18 +345,22 @@ def scrape_deals():
                                 continue
                             price = float(price_str)
 
-                            brand = determine_brand(card_text)
-                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, card_text, price)
+                            brand = determine_brand(title_text)
+                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, title_text, price)
                             if not is_valid_mrp:
                                 continue
 
                             coupon = extract_coupon(card_text)
 
+                            # Target inner container (.s-card-container) for tight, aligned screenshot
+                            inner_box = card.locator(".s-card-container").first
+                            target_shot = inner_box if inner_box.count() > 0 else card
+
                             img_path = f"temp_deal_{asin}.png"
-                            card.screenshot(path=img_path)
+                            target_shot.screenshot(path=img_path)
 
                             clean_link = f"https://www.amazon.in/dp/{asin}"
-                            send_telegram_deal(store, card_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+                            send_telegram_deal(store, title_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
@@ -365,7 +377,9 @@ def scrape_deals():
                     page.evaluate("window.scrollBy(0, 1000)")
                     time.sleep(2)
 
-                    product_elements = page.locator("div.lft.list_cel, div.list_block, li.child_block")
+                    product_elements = page.locator("div.list_block")
+                    if product_elements.count() == 0:
+                        product_elements = page.locator("div.lft.list_cel, li.child_block")
                     count = product_elements.count()
                     print(f"   Found {count} product cards on FirstCry.", flush=True)
 
@@ -373,10 +387,11 @@ def scrape_deals():
                         try:
                             card = product_elements.nth(i)
                             card.scroll_into_view_if_needed()
+                            time.sleep(0.3)
                             
                             card_text = card.inner_text()
                             
-                            # Filter out out of stock items
+                            # Skip out-of-stock items
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
                                 continue
 
@@ -395,6 +410,12 @@ def scrape_deals():
                             if not deal_key or deal_key in seen_deals:
                                 continue
 
+                            # Extract clean title from link title attribute or heading
+                            title_text = link_el.get_attribute("title") or ""
+                            if not title_text:
+                                title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
+                                title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
+
                             price = 0.0
                             pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s*\(\d+%\s*Off\)", card_text, re.I)
                             pm_club = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club Price", card_text, re.I)
@@ -406,8 +427,8 @@ def scrape_deals():
                             if price <= 10:
                                 continue
 
-                            brand = determine_brand(card_text)
-                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, card_text, price)
+                            brand = determine_brand(title_text)
+                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, title_text, price)
                             if not is_valid_mrp:
                                 continue
 
@@ -416,7 +437,7 @@ def scrape_deals():
                             img_path = f"temp_fc_{i}.png"
                             card.screenshot(path=img_path)
 
-                            send_telegram_deal(store, card_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+                            send_telegram_deal(store, title_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
