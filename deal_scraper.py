@@ -19,21 +19,22 @@ AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")
 
 CACHE_FILE = "seen_deals.json"
 
-# MRP Rules Dictionary
+# MRP Rules Dictionary (Fully calibrated to exact retail MRPs)
 MRP_RULES = {
-    "Hot Wheels": {
+   "Hot Wheels": {
         "mainline": 179,
         "5_pack": 899,
-        "premium_single": 599,
-        "silver_or_pop": 349,
+        "premium_5_pack": 3999,
+        "premium_single": 549,
+        "silver_or_pop": 299,   # <-- Corrected to ₹299 MRP
         "team_transport": 1499,
         "diorama_or_box_set": 2499,
         "monster_truck": 399,
         "f1_premium": 699,
     },
     "Matchbox": {
-        "mainline": 199,
-        "moving_parts": 299,
+        "mainline": 179,  # Matchbox mainline MRP
+        "moving_parts": 399,
     },
     "Majorette": {
         "street": 179,
@@ -86,6 +87,10 @@ def classify_and_check_mrp(brand, title, price):
     ]):
         return False, None
 
+    # Check for Premium 5-packs / Collector bundles first
+    if brand == "Hot Wheels" and any(k in t for k in ["fast & furious", "fast and furious", "car culture bundle", "premium bundle", "collector set"]) and ("5-pack" in t or "5 pack" in t or "5 cars" in t):
+        return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
+
     for num_cars in range(2, 11):
         if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}pc" in t or 
             f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
@@ -114,7 +119,7 @@ def classify_and_check_mrp(brand, title, price):
             return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
         elif any(k in t for k in ["formula 1", "f1"]) and "premium" in t:
             return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
-        elif any(k in t for k in ["premium", "car culture", "boulevard", "pop culture"]):
+        elif any(k in t for k in ["premium", "car culture", "boulevard", "pop culture", "pop culture"]):
             return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
         elif "silver series" in t or "pantone" in t or "performance trucks" in t:
             return price <= MRP_RULES["Hot Wheels"]["silver_or_pop"], MRP_RULES["Hot Wheels"]["silver_or_pop"]
@@ -139,7 +144,6 @@ def classify_and_check_mrp(brand, title, price):
     return False, None
 
 def extract_amazon_coupon(card_text):
-    """Extracts Amazon promo codes or clippable coupon savings."""
     code_match = re.search(r"(?:with\s+coupon|use\s+code|with\s+code|promo\s+code)\s*:?\s*([A-Z0-9]{5,12})\b", card_text, re.I)
     if code_match and code_match.group(1).upper() not in ["COUPON", "APPLIED", "SAVINGS", "DETAILS"]:
         return code_match.group(1).upper()
@@ -150,7 +154,6 @@ def extract_amazon_coupon(card_text):
     return None
 
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
-    """Opens FirstCry Product Detail Page to grab live Coupon Codes, Post-Coupon Price, and a clean screenshot."""
     pdp_page = context.new_page()
     coupon_code = None
     best_price = fallback_price
@@ -311,7 +314,6 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
 
-    # Highlighted Title Banner for At MRP vs Below MRP
     if round(price) < round(expected_mrp):
         savings = round(expected_mrp - price)
         header_banner = f"🔥 <b>BELOW MRP DEAL (Save ₹{savings} | MRP: ₹{expected_mrp:.0f})</b> 🔥"
@@ -320,7 +322,6 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         header_banner = f"✅ <b>AT MRP ALERT (MRP: ₹{expected_mrp:.0f})</b> ✅"
         mrp_status = "At MRP"
 
-    # Custom branded short link display text
     if "amazon" in store.lower():
         link_display_text = "🔗 link.amazon"
     elif "firstcry" in store.lower():
@@ -366,7 +367,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
             "chat_id": TELEGRAM_CHAT_ID,
             "text": caption,
             "parse_mode": "HTML",
-            "disable_web_page_preview": True # Keeps preview card clean like the screenshot
+            "disable_web_page_preview": True
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
@@ -375,7 +376,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 def scrape_deals():
-    print("🚀 Starting Highlighted MRP & Coupon Deal Scraper...", flush=True)
+    print("🚀 Starting Fully-Calibrated Deal Scraper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     
