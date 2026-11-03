@@ -40,10 +40,9 @@ def load_seen_deals():
     return set()
 
 def save_seen_deals(seen_set):
-    """Saves updated seen deals back to cache file (keeps last 200 items)."""
+    """Saves updated seen deals back to cache file (keeps last 300 items)."""
     try:
-        # Keep latest 200 items to prevent file from growing indefinitely
-        trimmed_list = list(seen_set)[-200:]
+        trimmed_list = list(seen_set)[-300:]
         with open(CACHE_FILE, "w") as f:
             json.dump(trimmed_list, f)
     except Exception as e:
@@ -193,7 +192,7 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 def scrape_deals():
-    print("🚀 Starting Mass-Market Deal Scraper v5 (Cache-Enabled)...", flush=True)
+    print("🚀 Starting Mass-Market Deal Scraper (Full Uncapped Run)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     
@@ -238,14 +237,11 @@ def scrape_deals():
                     valid_items = [i for i in items if i.get("data-asin")]
                     print(f"   Found {len(valid_items)} product cards on Amazon.", flush=True)
 
-                    matched_count = 0
                     for item in valid_items:
-                        if matched_count >= 5:
-                            break
                         try:
                             asin = item.get("data-asin", "").strip()
                             if not asin or asin in seen_deals:
-                                continue # Skip already seen deals
+                                continue
 
                             img_elem = item.select_one("img.s-image")
                             h2_texts = [h.get_text(" ", strip=True) for h in item.select("h2") if h.get_text(strip=True)]
@@ -268,7 +264,6 @@ def scrape_deals():
                             send_telegram_deal(store, title, price, clean_link, image_url=img_url)
                             seen_deals.add(asin)
                             new_seen_count += 1
-                            matched_count += 1
                             time.sleep(1)
                         except Exception:
                             continue
@@ -283,20 +278,16 @@ def scrape_deals():
                     items = soup.select("div.list_block, div.lft.list_cel, div.main_prod_box, li.child_block")
                     print(f"   Found {len(items)} product cards on FirstCry.", flush=True)
 
-                    matched_count = 0
                     for item in items:
-                        if matched_count >= 5:
-                            break
                         try:
                             link_tag = item.find("a", href=re.compile(r"/hot-wheels|/product-detail", re.I)) or item.find("a", href=True)
                             if not link_tag:
                                 continue
                             clean_link = normalize_and_clean_url(link_tag["href"], "https://www.firstcry.com")
                             
-                            # Use product URL slug as unique cache key
                             deal_key = clean_link.split("?")[0]
                             if not deal_key or deal_key in seen_deals:
-                                continue # Skip already seen deals
+                                continue
 
                             title = ""
                             for a_tag in item.find_all("a", href=True):
@@ -347,7 +338,6 @@ def scrape_deals():
                             send_telegram_deal(store, title, price, clean_link, image_url=img_url)
                             seen_deals.add(deal_key)
                             new_seen_count += 1
-                            matched_count += 1
                             time.sleep(1)
                         except Exception:
                             continue
@@ -357,8 +347,7 @@ def scrape_deals():
 
         browser.close()
 
-    # Save updated cache back to file
-    save_seen_deals(seen_deals)
+    save_seen_deals(seen_seen_deals if 'seen_seen_deals' in locals() else seen_deals)
     print(f"\n🏁 Deal scan complete. Added {new_seen_count} new deals to cache.", flush=True)
 
 if __name__ == "__main__":
