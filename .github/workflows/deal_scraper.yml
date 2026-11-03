@@ -24,9 +24,10 @@ jobs:
           playwright install chromium
 
       - name: Run Deal Scraper
+       - name: Run Deal Scraper
         env:
-          CUELINKS_API_KEY: ${{ secrets.CUELINKS_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python deal_scraper.py
+          CUELINKS_API_KEY: ${{ secrets.CUELINKS_API_KEY }}
+          AMAZON_AFFILIATE_TAG: ${{ secrets.AMAZON_AFFILIATE_TAG }}
+        run: python deal_scraper.py
