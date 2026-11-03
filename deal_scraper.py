@@ -62,14 +62,28 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
 
 def convert_to_affiliate_link(raw_url):
     """
-    Converts a clean merchant URL into a short Cuelinks affiliate link (clnk.in).
-    Supports Cuelinks API v3 (nested 'data' JSON), API v2 fallback, and is.gd shortener fallback.
+    - Uses direct AMAZON_AFFILIATE_TAG for Amazon.in links + shortens them.
+    - Uses Cuelinks API for FirstCry and other stores.
     """
     if not raw_url or not raw_url.startswith("http"):
         return raw_url
 
+    # 1. If it's an Amazon link and we have our direct Amazon Tag, skip Cuelinks & shorten directly
+    if "amazon.in" in raw_url and AMAZON_AFFILIATE_TAG:
+        try:
+            r_short = requests.get(
+                f"https://is.gd/create.php?format=simple&url={requests.utils.quote(raw_url)}",
+                timeout=6
+            )
+            if r_short.status_code == 200 and r_short.text.startswith("http"):
+                print(f"   🔗 Amazon Direct Affiliate Short Link: {r_short.text.strip()}", flush=True)
+                return r_short.text.strip()
+        except Exception:
+            pass
+        return raw_url
+
+    # 2. For FirstCry (or if no Amazon tag is set), convert via Cuelinks API v3
     if CUELINKS_API_KEY:
-        # 1. Try Cuelinks API v3
         v3_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
         v3_headers = {
             "Authorization": f"Token {CUELINKS_API_KEY}",
@@ -81,7 +95,6 @@ def convert_to_affiliate_link(raw_url):
             r = requests.post(v3_endpoint, json=v3_payload, headers=v3_headers, timeout=8)
             if r.status_code in [200, 201]:
                 resp_json = r.json()
-                # Cuelinks v3 nests fields inside "data": {"short_url": "...", "tracking_url": "..."}
                 data_obj = resp_json.get("data") if isinstance(resp_json.get("data"), dict) else resp_json
                 cuelink = data_obj.get("short_url") or data_obj.get("tracking_url") or data_obj.get("url")
                 if cuelink and cuelink != raw_url:
@@ -92,7 +105,7 @@ def convert_to_affiliate_link(raw_url):
         except Exception as e:
             print(f"   ⚠️ Cuelinks v3 request error: {e}", flush=True)
 
-        # 2. Fallback to Cuelinks API v2 (in case the key is a v2 key or missing v3 write:links scope)
+        # Fallback to Cuelinks API v2
         try:
             v2_endpoint = "https://www.cuelinks.com/api/v2/links.json"
             v2_headers = {
@@ -109,8 +122,6 @@ def convert_to_affiliate_link(raw_url):
                     return cuelink2
         except Exception:
             pass
-    else:
-        print("   ⚠️ CUELINKS_API_KEY secret is empty! Check GitHub Secrets.", flush=True)
 
     # 3. Always shorten long URLs (> 42 chars) so Telegram messages stay compact
     if len(raw_url) > 42:
