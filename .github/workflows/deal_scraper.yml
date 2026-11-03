@@ -17,6 +17,14 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Restore seen deals cache
+        uses: actions/cache@v4
+        with:
+          path: seen_deals.json
+          key: ${{ runner.os }}-seen-deals-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-seen-deals-
+
       - name: Install dependencies
         run: |
           pip install requests beautifulsoup4 playwright
