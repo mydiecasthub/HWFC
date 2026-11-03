@@ -320,11 +320,21 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         header_banner = f"✅ <b>AT MRP ALERT (MRP: ₹{expected_mrp:.0f})</b> ✅"
         mrp_status = "At MRP"
 
+    # Custom branded short link display text
+    if "amazon" in store.lower():
+        link_display_text = "🔗 link.amazon"
+    elif "firstcry" in store.lower():
+        link_display_text = "🔗 link.firstcry"
+    else:
+        link_display_text = f"🔗 link.{store.lower().replace(' ', '')}"
+
+    formatted_link = f'<a href="{final_link}">{link_display_text}</a>'
+
     caption_lines = [
         header_banner,
         "",
         f"🚨 <b>{clean_title} @ ₹{price:.0f} [{safe_store}]</b>",
-        f"{final_link}"
+        formatted_link
     ]
 
     if coupon:
@@ -348,7 +358,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status}) | Coupon: {coupon}", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -356,11 +366,11 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
             "chat_id": TELEGRAM_CHAT_ID,
             "text": caption,
             "parse_mode": "HTML",
-            "disable_web_page_preview": False
+            "disable_web_page_preview": True # Keeps preview card clean like the screenshot
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status}) | Coupon: {coupon}", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
