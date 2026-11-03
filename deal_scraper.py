@@ -30,7 +30,7 @@ MRP_RULES = {
         "team_transport": 1499,
         "diorama_or_box_set": 2499,
         "monster_truck": 399,
-        "f1_premium": 699,
+        "f1_premium": 799,
     },
     "Matchbox": {
         "mainline": 179,  # Matchbox mainline MRP
@@ -38,7 +38,7 @@ MRP_RULES = {
     },
     "Majorette": {
         "street": 179,
-        "premium": 399,
+        "premium_or_moving_parts": 399,
         "deluxe": 599,
         "collection": 899,
     }
