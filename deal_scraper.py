@@ -159,8 +159,9 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
     final_link = convert_to_affiliate_link(link)
     clean_title = clean_product_title(title)
 
+    # Clean store indicator included so buyers know where the deal is live
     caption_lines = [
-        f"🚨 {clean_title}@{price:.0f} -",
+        f"🚨 {clean_title} @ ₹{price:.0f} [{store}] -",
         f"{final_link}"
     ]
 
@@ -186,7 +187,7 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
             }
             r = requests.post(api_url, json=payload, timeout=15)
             if r.status_code == 200:
-                print(f"   📸 Sent Photo Alert: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
+                print(f"   📸 Sent Photo Alert [{store}]: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
                 return
             else:
                 print(f"   ⚠️ Photo send failed ({r.status_code}), falling back to text...", flush=True)
@@ -199,7 +200,7 @@ def send_telegram_deal(store, title, price, link, image_url=None, coupon=None):
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text Alert: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
+            print(f"   ✅ Sent Text Alert [{store}]: {clean_title[:40]} @ ₹{price:.0f}", flush=True)
         else:
             print(f"   ⚠️ Telegram Error: {r.text}", flush=True)
     except Exception as e:
