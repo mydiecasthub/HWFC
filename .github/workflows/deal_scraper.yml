@@ -5,8 +5,8 @@ on:
     # Run every hour from 6:00 AM to 8:00 AM
     - cron: '0 6,7 * * *'
     
-    # Run every 17 minutes from 8:00 AM to 11:59 PM (Midnight)
-    - cron: '*/17 8-23 * * *'
+    # Run every 15 minutes from 8:00 AM to 11:59 PM (Midnight)
+    - cron: '*/15 8-23 * * *'
 
   workflow_dispatch: # Allows manual trigger from Actions tab
 
