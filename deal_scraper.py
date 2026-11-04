@@ -725,7 +725,7 @@ def scrape_deals():
                                     scraped_mrp = None
 
                             brand = determine_brand(title_text)
-                            is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, title_text, price, scraped_mrp=scraped_mrp)
+                           is_valid_mrp, expected_mrp = classify_and_check_mrp(brand, title_text, price, scraped_mrp=scraped_mrp, store=store)
                             if not is_valid_mrp:
                                 continue
 
