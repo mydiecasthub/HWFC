@@ -97,36 +97,56 @@ def determine_brand(title):
     else:
         return "Hot Wheels"
 
-def classify_and_check_mrp(brand, title, price):
+def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
     t = title.lower()
     if any(skip in t for skip in [
         "case of", "collector case", "blind box", "track", "playset", "play set", "petrol station",
         "garage", "carry case", "launcher", "protector", "lapel pin", "magnet", "rotiform",
-        "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18", "red line club", "rlc", "elite 64"
+        "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18", "red line club", "rlc", "elite 64",
+        "conventions", "skate", "fingerboard", "monster jam", "rc ", "remote control"
     ]):
         return False, None
 
-    # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL SERIES ---
+    # Known Hot Wheels 5-Pack assortment names (for when FirstCry omits '5 Pack' from the title)
+    hw_5pack_themes = [
+        "hw torque", "motor show", "street beasts", "retro racers", "nightburnerz",
+        "x-raycers", "exotics", "hot trucks", "mud studs", "hw flames", "hw city",
+        "hw track", "action pack", "stunt", "car meet", "mopar", "mustang", "corvette", "nissan"
+    ]
+
     if brand == "Hot Wheels":
-        if any(k in t for k in ["fast & furious", "fast and furious", "car culture", "premium bundle"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5"]):
+        # Check if FirstCry's scraped MRP explicitly confirms a standard 5-Pack (899), Silver Series (299), or Premium (549)
+        if scraped_mrp and round(scraped_mrp) in [299, 399, 549, 699, 899, 999, 1099, 1499, 1999, 2999, 3999]:
+            return price <= scraped_mrp, round(scraped_mrp)
+
+        # Gold-Label Premium 5-Pack Bundles (F&F / Car Culture)
+        if any(k in t for k in ["fast & furious", "fast and furious", "car culture", "premium bundle", "movie franchise"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
             return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
 
-        if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary"]):
+        # Silver-Label Themed 6-Packs
+        if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
             return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
 
-        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars"]) and any(p in t for p in ["car culture", "premium"]):
+        # Gold-Label Car Culture 2-Packs
+        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders"]):
             return price <= MRP_RULES["Hot Wheels"]["car_culture_2_pack"], MRP_RULES["Hot Wheels"]["car_culture_2_pack"]
 
-        if "color reveal" in t:
+        # Basics: Color Reveal 2-Pack
+        if "color reveal" in t or "colour reveal" in t:
             return price <= MRP_RULES["Hot Wheels"]["color_reveal"], MRP_RULES["Hot Wheels"]["color_reveal"]
 
-        if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter"]):
+        # Gold-Label Team Transport
+        if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on"]):
             return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
 
-        if any(k in t for k in ["diorama", "display set", "collector set", "box set", "heritage gift pack"]):
+        # Gold-Label Premium Display Sets / Dioramas
+        if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
             return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
 
-        if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack"]) and "silver" not in t and "premium" not in t:
+        # Basics: Standard 5-Packs (explicit keyword OR known 5-pack theme priced between ₹400 and ₹899)
+        if (any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5"]) or (
+            any(theme in t for theme in hw_5pack_themes) and 400 <= price <= 899
+        )) and "silver" not in t and "premium" not in t:
             return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
 
     elif brand == "Matchbox":
