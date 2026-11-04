@@ -448,7 +448,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
             "Profile → Recently Viewed, and click Add to Cart from there!"
         )
 
-    caption_lines.append("\n🚨 Share with your collector buddies!")
+    caption_lines.append("\n🚨 Share with your collector friends!")
     caption = "\n".join(caption_lines)
 
     try:
@@ -611,11 +611,13 @@ def scrape_deals():
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
-                            price = 0.0
-                            pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s*\(\d+%\s*Off\)", card_text, re.I)
+                           price = 0.0
+                            scraped_mrp = None
+                            pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)", card_text, re.I)
                             pm_club = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club Price", card_text, re.I)
                             if pm_discount:
                                 price = float(pm_discount.group(1))
+                                scraped_mrp = float(pm_discount.group(2))
                             elif pm_club:
                                 price = float(pm_club.group(1))
 
@@ -623,10 +625,9 @@ def scrape_deals():
                                 continue
 
                             brand = determine_brand(title_text)
-                            _, expected_mrp = classify_and_check_mrp(brand, title_text, price)
+                            _, expected_mrp = classify_and_check_mrp(brand, title_text, price, scraped_mrp=scraped_mrp)
                             if not expected_mrp:
                                 continue
-
                             coupon, final_price, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
 
                             if final_price > expected_mrp:
