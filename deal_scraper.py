@@ -418,9 +418,7 @@ def clean_product_title(raw_title):
     )[0]
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,|")
     return cleaned
-
 def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None):
-    final_link = convert_to_affiliate_link(link)
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
 
@@ -432,12 +430,23 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         header_banner = f"✅ <b>AT MRP ALERT (MRP: ₹{expected_mrp:.0f})</b> ✅"
         mrp_status = "At MRP"
 
-    if "amazon" in store.lower():
-        link_display_text = "🔗 link.amazon"
-    elif "firstcry" in store.lower():
-        link_display_text = "🔗 link.firstcry"
+    # Extract ASIN or clean ID for clean branded display text
+    if "amazon.in" in store.lower() or "amazon" in link:
+        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", link)
+        if asin_match:
+            asin = asin_match.group(1)
+            # Clean affiliate URL for the backend href
+            final_link = f"https://www.amazon.in/dp/{asin}"
+            if AMAZON_AFFILIATE_TAG:
+                final_link += f"?tag={AMAZON_AFFILIATE_TAG}"
+            # Clean branded display text just like other groups (hides affiliate tag)
+            link_display_text = f"https://link.amazon/{asin}"
+        else:
+            final_link = convert_to_affiliate_link(link)
+            link_display_text = "https://link.amazon/deal"
     else:
-        link_display_text = f"🔗 link.{store.lower().replace(' ', '')}"
+        final_link = convert_to_affiliate_link(link)
+        link_display_text = "🔗 link.firstcry" if "firstcry" in store.lower() else f"🔗 link.{store.lower().replace(' ', '')}"
 
     formatted_link = f'<a href="{final_link}">{link_display_text}</a>'
 
