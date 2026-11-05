@@ -82,7 +82,7 @@ def load_seen_deals():
 
 def save_seen_deals(seen_set):
     try:
-        trimmed_list = list(seen_set)[-500:]
+        trimmed_list = list(seen_set)[-600:]
         with open(CACHE_FILE, "w") as f:
             json.dump(trimmed_list, f)
     except Exception as e:
@@ -361,18 +361,19 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
 def convert_to_affiliate_link(raw_url):
     if not raw_url or not raw_url.startswith("http"):
         return raw_url
-    if "amazon.in" in raw_url and AMAZON_AFFILIATE_TAG:
-        try:
-            r_short = requests.get(
-                f"https://is.gd/create.php?format=simple&url={requests.utils.quote(raw_url)}",
-                timeout=6
-            )
-            if r_short.status_code == 200 and r_short.text.startswith("http"):
-                return r_short.text.strip()
-        except Exception:
-            pass
+    
+    # Direct Amazon affiliate link (bypasses is.gd connection resets)
+    if "amazon.in" in raw_url:
+        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", raw_url)
+        if asin_match:
+            asin = asin_match.group(1)
+            base_amzn = f"https://www.amazon.in/dp/{asin}"
+            if AMAZON_AFFILIATE_TAG:
+                return f"{base_amzn}?tag={AMAZON_AFFILIATE_TAG}"
+            return base_amzn
         return raw_url
 
+    # Cuelinks conversion for FirstCry
     if CUELINKS_API_KEY:
         v3_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
         v3_headers = {
@@ -391,16 +392,6 @@ def convert_to_affiliate_link(raw_url):
         except Exception:
             pass
 
-    if len(raw_url) > 42:
-        try:
-            r_short = requests.get(
-                f"https://is.gd/create.php?format=simple&url={requests.utils.quote(raw_url)}",
-                timeout=6
-            )
-            if r_short.status_code == 200 and r_short.text.startswith("http"):
-                return r_short.text.strip()
-        except Exception:
-            pass
     return raw_url
 
 def clean_product_title(raw_title):
@@ -418,6 +409,7 @@ def clean_product_title(raw_title):
     )[0]
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,|")
     return cleaned
+
 def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None):
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
@@ -430,16 +422,13 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         header_banner = f"✅ <b>AT MRP ALERT (MRP: ₹{expected_mrp:.0f})</b> ✅"
         mrp_status = "At MRP"
 
-    # Extract ASIN or clean ID for clean branded display text
     if "amazon.in" in store.lower() or "amazon" in link:
         asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", link)
         if asin_match:
             asin = asin_match.group(1)
-            # Clean affiliate URL for the backend href
             final_link = f"https://www.amazon.in/dp/{asin}"
             if AMAZON_AFFILIATE_TAG:
                 final_link += f"?tag={AMAZON_AFFILIATE_TAG}"
-            # Clean branded display text just like other groups (hides affiliate tag)
             link_display_text = f"https://link.amazon/{asin}"
         else:
             final_link = convert_to_affiliate_link(link)
@@ -563,6 +552,10 @@ def scrape_deals():
                                 else:
                                     title_text = f"Hot Wheels {title_text}"
 
+                            amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())}"
+                            if amz_title_key in seen_deals:
+                                continue
+
                             price_elem = card.locator(".a-price-whole").first
                             if price_elem.count() == 0:
                                 continue
@@ -592,13 +585,16 @@ def scrape_deals():
                             img_path = f"temp_deal_{asin}.png"
                             target_shot.screenshot(path=img_path)
 
+                            seen_deals.add(asin)
+                            seen_deals.add(amz_title_key)
+                            save_seen_deals(seen_deals)
+
                             clean_link = f"https://www.amazon.in/dp/{asin}"
                             send_telegram_deal(store, title_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
 
-                            seen_deals.add(asin)
                             new_seen_count += 1
                             time.sleep(1)
                         except Exception:
@@ -636,7 +632,13 @@ def scrape_deals():
                                 continue
                             raw_href = link_el.get_attribute("href")
                             clean_link = normalize_and_clean_url(raw_href, "https://www.firstcry.com")
-                            deal_key = clean_link.split("?")[0]
+
+                            # Extract FirstCry's unique numeric Product ID so duplicate cards never fire twice
+                            fc_id_match = re.search(r"/(\d{5,12})/product-detail", clean_link)
+                            if fc_id_match:
+                                deal_key = f"fc_{fc_id_match.group(1)}"
+                            else:
+                                deal_key = clean_link.split("?")[0].rstrip("/")
 
                             if not deal_key or deal_key in seen_deals:
                                 continue
@@ -645,6 +647,11 @@ def scrape_deals():
                             if not title_text:
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
+
+                            # Secondary lock: also deduplicate by cleaned title text
+                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())}"
+                            if title_key in seen_deals:
+                                continue
 
                             price = 0.0
                             scraped_mrp = None
@@ -677,12 +684,16 @@ def scrape_deals():
                                 img_path = f"temp_fc_{i}.png"
                                 card.screenshot(path=img_path)
 
+                            # Lock both ID and Title into seen_deals BEFORE sending so it never double-fires
+                            seen_deals.add(deal_key)
+                            seen_deals.add(title_key)
+                            save_seen_deals(seen_deals)
+
                             send_telegram_deal(store, title_text, final_price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
 
-                            seen_deals.add(deal_key)
                             new_seen_count += 1
                             time.sleep(1)
                         except Exception:
