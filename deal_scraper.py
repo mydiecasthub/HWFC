@@ -40,7 +40,8 @@ MRP_RULES = {
         
         # Other Lines
         "monster_truck": 399,          # 1:64 Monster Trucks
-        "f1_premium": 699,             # Formula 1 Premium Singles
+        "f1_premium": 799,             # Formula 1 Premium Singles (Official MRP: ₹799)
+        "f1_2_pack": 1599,             # Formula 1 Premium 2-Packs
     },
     "Matchbox": {
         "mainline": 179,
@@ -66,6 +67,7 @@ TARGET_URLS = [
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&s=date-desc-rank"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Formula+1"},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Race+Team+Premium"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Silver+Series"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Premium"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Pop+Culture"},
@@ -74,6 +76,7 @@ TARGET_URLS = [
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Matchbox+cars"},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Majorette+cars"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels"},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette"}
 ]
@@ -118,12 +121,11 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         return False, None
 
     # STRICT AMAZON SCALPER PROTECTION:
-    # Never trust ANY printed M.R.P. from Amazon across ALL lines (Mainline, Silver, Premium, 5-Packs, etc.)
+    # Never trust ANY printed M.R.P. from Amazon across ALL lines (Mainline, Silver, Premium, F1, 5-Packs, etc.)
     if "amazon" in store.lower():
         scraped_mrp = None
 
     # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (e.g., 233/250, 45/250, 9/10) ---
-    # Any card with /250 or /10 numbering (without Silver Series keywords) is strictly a ₹179 Mainline
     if brand == "Hot Wheels" and re.search(r'\b(250|[1-9][0-9]?)\s*/\s*(250|10)\b', title):
         if not any(s in t for s in ["silver series", "silver label", "pantone", "ultra hots", "neon speeders"]):
             target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
@@ -135,10 +137,28 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "hw track", "action pack", "stunt", "car meet", "mopar", "mustang", "corvette", "nissan"
     ]
 
+    # Complete Formula 1 Premium Dictionary (catches cars even when 'Formula 1' or 'F1' is missing from title)
+    f1_keywords = [
+        "formula 1", "formula one", "f1", "race team",
+        # F1 Teams & Title Sponsors
+        "atlassian", "williams racing", "williams jkd", "bwt alpine", "alpine formula",
+        "oracle red bull", "red bull racing", "scuderia ferrari", "ferrari hp",
+        "mercedes-amg petronas", "petronas formula", "mclaren formula", "aston martin aramco",
+        "visa cash app", "racing bulls", "vcarb", "kick sauber", "stake f1", "moneygram haas", "haas f1",
+        # Mattel F1 Assortment & Toy Codes
+        "hrv11", "jkd81", "jkd82", "jkd83", "jkd84", "jkd85", "jkd86", "jkd87", "jkd88", "jkd89", "jdk81",
+        # F1 Chassis Codes & Driver Names
+        "rb20", "rb21", "sf-24", "sf-25", "w15", "w16", "mcl38", "mcl39", "amr24", "amr25",
+        "a524", "a525", "fw46", "fw47", "vf-24", "vf-25",
+        "verstappen", "perez", "leclerc", "hamilton", "norris", "piastri", "russell", "antonelli",
+        "alonso", "stroll", "sainz", "albon", "gasly", "doohan", "colapinto", "tsunoda", "lawson",
+        "hulkenberg", "bortoleto", "ocon", "bearman"
+    ]
+
     # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
     if brand == "Hot Wheels":
-        # Only FirstCry uses scraped_mrp (since Amazon scraped_mrp is forced to None above)
-        if scraped_mrp and round(scraped_mrp) in [179, 299, 399, 549, 699, 899, 999, 1099, 1499, 1999, 2999, 3999, 4000]:
+        # Only FirstCry uses scraped_mrp (includes 799 for F1 Premium!)
+        if scraped_mrp and round(scraped_mrp) in [179, 299, 399, 549, 699, 799, 899, 999, 1099, 1499, 1599, 1999, 2999, 3999, 4000]:
             target_mrp = 3999 if round(scraped_mrp) == 4000 else round(scraped_mrp)
             return price <= target_mrp, target_mrp
 
@@ -149,6 +169,10 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         # Silver-Label Themed 6-Packs -> ₹1,999
         if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
             return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
+
+        # Formula 1 Premium 2-Packs -> ₹1,599
+        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
+            return price <= MRP_RULES["Hot Wheels"]["f1_2_pack"], MRP_RULES["Hot Wheels"]["f1_2_pack"]
 
         # Gold-Label Car Culture 2-Packs -> ₹1,099
         if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
@@ -201,7 +225,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
             f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
             if brand == "Hot Wheels":
-                if any(k in t for k in ["formula 1", "formula one", "f1", "alpine", "race team"]) and any(p in t for p in ["premium", "car culture", "collectible", "driver"]):
+                if any(k in t for k in f1_keywords):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
                 elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie"]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
@@ -231,8 +255,10 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         if "monster truck" in t:
             return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
 
-        # Formula 1 Premium Singles -> ₹699
-        elif any(k in t for k in ["formula 1", "formula one", "f1", "alpine", "race team"]) and any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders"]):
+        # Formula 1 Premium Singles -> ₹799 (Matches even when 'Formula 1' is omitted, e.g., 'Atlassian Williams JKD85 One Premium')
+        elif any(k in t for k in f1_keywords) and (
+            any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
+        ):
             return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
 
         # Gold-Label Premium Singles -> ₹549 (Boulevard, Car Culture, Pop Culture, Premium F&F, Replica Entertainment)
