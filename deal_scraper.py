@@ -318,6 +318,19 @@ def extract_amazon_coupon(card_text):
         return f"{clip_match.group(1)} (Clip on page)"
     return None
 
+def extract_amazon_delivery(card_text):
+    # 1. Check for paid delivery charges (e.g., "₹40 delivery", "+ ₹80 delivery", "₹99 shipping")
+    paid_match = re.search(r"(?:\+\s*)?₹\s*([1-9][0-9]{0,3}(?:\.[0-9]{1,2})?)\s*(?:delivery|shipping)", card_text, re.I)
+    if paid_match:
+        amt = float(paid_match.group(1))
+        return f"₹{amt:.0f}"
+
+    # 2. Check for FREE delivery
+    if re.search(r"\bFREE\s+delivery\b", card_text, re.I):
+        return "FREE"
+
+    return None
+
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
     pdp_page = context.new_page()
     coupon_code = None
@@ -520,7 +533,7 @@ def clean_product_title(raw_title):
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,|")
     return cleaned
 
-def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None):
+def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None, delivery=None):
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
 
@@ -549,12 +562,21 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
     formatted_link = f'<a href="{final_link}">{link_display_text}</a>'
 
+    # Show inline shipping note if paid delivery applies on Amazon (e.g. "+ ₹40 Ship")
+    inline_ship = ""
+    if delivery and delivery.upper() != "FREE":
+        inline_ship = f" (+ {html.escape(str(delivery))} Ship)"
+
     caption_lines = [
         header_banner,
         "",
-        f"🚨 <b>{clean_title} @ ₹{price:.0f} [{safe_store}]</b>",
+        f"🚨 <b>{clean_title} @ ₹{price:.0f}{inline_ship} [{safe_store}]</b>",
         formatted_link
     ]
+
+    if delivery:
+        safe_delivery = html.escape(str(delivery))
+        caption_lines.append(f"🚚 <b>Delivery:</b> {safe_delivery}")
 
     if coupon:
         safe_coupon = html.escape(str(coupon))
@@ -577,7 +599,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Delivery: {delivery} | Coupon: {coupon})", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -589,7 +611,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Delivery: {delivery} | Coupon: {coupon})", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
@@ -683,6 +705,7 @@ def scrape_deals():
                                 continue
 
                             coupon = extract_amazon_coupon(card_text)
+                            delivery = extract_amazon_delivery(card_text)
 
                             inner_box = card.locator(".s-card-container").first
                             target_shot = inner_box if inner_box.count() > 0 else card
@@ -695,7 +718,10 @@ def scrape_deals():
                             save_seen_deals(seen_deals)
 
                             clean_link = f"https://www.amazon.in/dp/{asin}"
-                            send_telegram_deal(store, title_text, price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+                            send_telegram_deal(
+                                store, title_text, price, expected_mrp, clean_link,
+                                image_path=img_path, coupon=coupon, delivery=delivery
+                            )
 
                             if os.path.exists(img_path):
                                 os.remove(img_path)
