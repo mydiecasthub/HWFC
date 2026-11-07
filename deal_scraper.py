@@ -607,7 +607,8 @@ def scrape_deals():
                                 else:
                                     title_text = f"Hot Wheels {title_text}"
 
-                            amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())}"
+                           # Lock on first 28 alphanumeric chars so truncated titles still match 100%
+                            amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
                             if amz_title_key in seen_deals:
                                 continue
 
@@ -698,8 +699,8 @@ def scrape_deals():
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
-                            # Secondary lock: also deduplicate by cleaned title text
-                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())}"
+                            # Secondary lock: deduplicate by first 28 chars of cleaned title (catches truncated vs full titles)
+                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
                             if title_key in seen_deals:
                                 continue
 
