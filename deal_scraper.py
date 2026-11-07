@@ -326,38 +326,74 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
 
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
-        time.sleep(2.5)
+        time.sleep(2.0)
 
-        # Read both visible text AND full HTML/hidden text so collapsed offer drawers are captured
+        # Scroll down so lazy-loaded 'Offers and Discounts' block renders
+        pdp_page.evaluate("window.scrollBy(0, 650)")
+        time.sleep(1.2)
+
         pdp_text = pdp_page.locator("body").inner_text()
         pdp_html = pdp_page.content()
 
         ignore_words = {
             "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE",
-            "CHECKOUT", "SAVINGS", "DISCOUNT", "ELIGIBLE", "PRODUCTS", "MINIMUM",
-            "SHIPPING", "DELIVERY", "PINCODE", "BENEFITS", " CASHBACK", "VALID",
-            "TERMS", "CONDITIONS", "CLICK", "HERE", "SELECT", "COLOR", "COLOUR"
+            "CHECKOUT", "SAVINGS", "DISCOUNT", "DISCOUNTS", "ELIGIBLE", "PRODUCTS",
+            "MINIMUM", "SHIPPING", "DELIVERY", "PINCODE", "BENEFITS", "CASHBACK",
+            "VALID", "TERMS", "CONDITIONS", "CLICK", "HERE", "SELECT", "COLOR",
+            "COLOUR", "RETURN", "CHECK", "MEMB", "MEMBER", "MEMBERS", "FEDERAL",
+            "CREDIT", "DEBIT", "CARDS", "INSTANT", "BANK", "FLAT", "EXTRA", "CLUB",
+            "SHORTLIST", "ADDTOCART", "SHARE", "GIFT", "WRAP"
         }
 
-        # 1. Check explicit JS copy functions or data attributes in FirstCry's HTML (100% exact)
-        html_code_matches = re.findall(
-            r"(?:copyCode| copyToClipboard|data-coupon|data-code|cpn_code|promo_code)[^>]*?['\"=>\s]([A-Z0-9]{5,12})\b",
-            pdp_html,
-            re.I
+        # 1. PRIMARY TARGET: Isolate the exact 'Offers and Discounts' section (above 'Bank Offers')
+        offers_block_match = re.search(
+            r"Offers\s+and\s+Discounts(.*?)(?:Bank\s+Offers|Product\s+Description|Specifications|You\s+May\s+Also\s+Like|$)",
+            pdp_text,
+            re.I | re.S
         )
-        for m in html_code_matches:
-            cand = m.strip().upper()
-            if cand not in ignore_words and any(c.isalpha() for c in cand) and not cand.isalpha() or cand in ["BUYNOW", "TOYSALE", "DEALNOW", "FIRSTBUY"]:
-                if cand not in ignore_words and len(cand) >= 5:
+        offers_section_text = offers_block_match.group(1) if offers_block_match else ""
+
+        if offers_section_text:
+            # First check if a code sits right after 'T&C' or 'T&C >' (exact layout of FirstCry's blue copy button!)
+            tc_code_match = re.search(r"T\s*&\s*C\s*>?\s*\n+\s*\b([A-Z0-9]{5,12})\b", offers_section_text)
+            if tc_code_match and tc_code_match.group(1).strip() not in ignore_words:
+                coupon_code = tc_code_match.group(1).strip()
+
+            # Otherwise scan each line inside 'Offers and Discounts' for a standalone uppercase promo code button
+            if not coupon_code:
+                for line in offers_section_text.splitlines():
+                    clean_line = re.sub(r"[^A-Z0-9]", "", line.strip())
+                    # Standalone button line where the line itself is the uppercase coupon (e.g. 'BUYNOW', 'T37JRP', 'NFNOV')
+                    if 5 <= len(clean_line) <= 12 and clean_line == line.strip().upper().replace(" ", "") and clean_line not in ignore_words:
+                        if any(c.isalpha() for c in clean_line):
+                            coupon_code = clean_line
+                            break
+
+            # Or look for any ALL-CAPS token inside Offers and Discounts not in ignore_words
+            if not coupon_code:
+                for tok in re.findall(r"\b([A-Z0-9]{5,12})\b", offers_section_text):
+                    if tok not in ignore_words and any(c.isalpha() for c in tok):
+                        coupon_code = tok
+                        break
+
+        # 2. Check explicit JS copy functions or data attributes in FirstCry's HTML
+        if not coupon_code:
+            html_code_matches = re.findall(
+                r"(?:copyCode|copyToClipboard|data-coupon|data-code|cpn_code|promo_code)[^>]*?['\"=>\s]([A-Z0-9]{5,12})\b",
+                pdp_html,
+                re.I
+            )
+            for m in html_code_matches:
+                cand = m.strip().upper()
+                if cand not in ignore_words and len(cand) >= 5 and any(c.isalpha() for c in cand):
                     coupon_code = cand
                     break
 
-        # 2. Check visible text with case-insensitive regex (catches 'Use Code: T37JRP', 'Code - BUYNOW', etc.)
+        # 3. Check general visible text patterns ('Use Code: T37JRP', 'Code: BUYNOW')
         if not coupon_code:
             code_patterns = [
                 r"(?:Use\s+Code|Coupon\s+Code|Promo\s+Code|Use\s+Promo|Apply\s+Code|Code)\s*[:\-–]?\s*\b([A-Z0-9]{5,12})\b",
-                r"\b([A-Z0-9]{5,12})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout|applicable)",
-                r"(?:Flat|Extra)\s+\d+%\s*Off.*?Code\s*[:\-–]?\s*\b([A-Z0-9]{5,12})\b"
+                r"\b([A-Z0-9]{5,12})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout|applicable)"
             ]
             for pat in code_patterns:
                 matches = re.findall(pat, pdp_text, flags=re.I | re.S)
@@ -369,34 +405,14 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                 if coupon_code:
                     break
 
-        # 3. Check FirstCry offer DOM containers directly (using text_content to read hidden slides)
-        if not coupon_code:
-            offer_elems = pdp_page.locator(
-                ".cpn_code, .offer_code, .promo-code, .coup_code, .club_offer, "
-                "[class*='coupon'], [class*='offer'], [class*='cpn'], [id*='coupon'], [id*='offer']"
-            )
-            for idx in range(min(offer_elems.count(), 15)):
-                el_txt = offer_elems.nth(idx).text_content() or ""
-                # Match either alphanumeric codes (T37JRP, NFNOV, FC40) or uppercase promo words (BUYNOW)
-                for m_dom in re.findall(r"\b([A-Z0-9]{5,10})\b", el_txt):
-                    if m_dom.isupper() and m_dom not in ignore_words:
-                        if (any(c.isalpha() for c in m_dom) and any(c.isdigit() for c in m_dom)) or m_dom in ["BUYNOW", "NFNOV", "TOYSALE", "DEALNOW"]:
-                            coupon_code = m_dom
-                            break
-                if coupon_code:
-                    break
-
-        # Calculate best post-coupon price if a percentage discount is mentioned near the coupon
+        # Calculate best post-coupon price from the percentage inside 'Offers and Discounts' (e.g. 'FLAT 30% OFF*')
         if coupon_code:
-            pct_match = re.search(rf"(\d{{1,2}})%\s*Off.*?(?:{coupon_code})", pdp_text, re.I | re.S)
-            if not pct_match:
-                pct_match = re.search(rf"(?:{coupon_code}).*?(\d{{1,2}})%\s*Off", pdp_text, re.I | re.S)
-            if not pct_match:
-                pct_match = re.search(r"(?:Flat|Extra|Save)\s+(\d{1,2})%\s*Off", pdp_text, re.I)
+            search_area = offers_section_text if offers_section_text else pdp_text
+            pct_match = re.search(r"(?:FLAT|EXTRA|SAVE)?\s*(\d{1,2})%\s*OFF", search_area, re.I)
             if pct_match:
                 pct = float(pct_match.group(1))
                 base_for_calc = expected_mrp if expected_mrp else fallback_price
-                if 5 <= pct <= 70 and base_for_calc:
+                if 10 <= pct <= 70 and base_for_calc:
                     calculated_price = round(base_for_calc * (1 - pct / 100.0))
                     if calculated_price < best_price:
                         best_price = calculated_price
@@ -410,6 +426,10 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             candidate_p = float(best_p_match.group(1))
             if 40 < candidate_p < best_price:
                 best_price = candidate_p
+
+        # Scroll back up to capture the clean main product card screenshot
+        pdp_page.evaluate("window.scrollTo(0, 0)")
+        time.sleep(0.3)
 
         pdp_container = pdp_page.locator("div.prod-info-wrap, div.pdp-main, div.product-detail-sec, div.main_prod_sec").first
         screenshot_path = f"temp_fc_pdp_{int(time.time()*1000)}.png"
@@ -557,7 +577,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -569,7 +589,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status})", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
@@ -642,7 +662,6 @@ def scrape_deals():
                                 else:
                                     title_text = f"Hot Wheels {title_text}"
 
-                           # Lock on first 28 alphanumeric chars so truncated titles still match 100%
                             amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
                             if amz_title_key in seen_deals:
                                 continue
@@ -734,7 +753,7 @@ def scrape_deals():
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
-                            # Secondary lock: deduplicate by first 28 chars of cleaned title (catches truncated vs full titles)
+                            # Secondary lock: deduplicate by first 28 chars of cleaned title
                             title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
                             if title_key in seen_deals:
                                 continue
