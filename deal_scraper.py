@@ -328,49 +328,84 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
         time.sleep(2.5)
 
+        # Read both visible text AND full HTML/hidden text so collapsed offer drawers are captured
         pdp_text = pdp_page.locator("body").inner_text()
+        pdp_html = pdp_page.content()
 
-        code_patterns = [
-            r"(?:Use\s+Code|Coupon\s+Code|Promo\s+Code|Code)\s*[:\-]?\s*\b([A-Z0-9]{5,12})\b",
-            r"\b([A-Z0-9]{5,10})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout)",
-            r"Apply\s+code\s+\b([A-Z0-9]{5,12})\b"
-        ]
         ignore_words = {
-            "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE", 
-            "CHECKOUT", "SAVINGS", "DISCOUNT", "ELIGIBLE", "PRODUCTS", "MINIMUM"
+            "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE",
+            "CHECKOUT", "SAVINGS", "DISCOUNT", "ELIGIBLE", "PRODUCTS", "MINIMUM",
+            "SHIPPING", "DELIVERY", "PINCODE", "BENEFITS", " CASHBACK", "VALID",
+            "TERMS", "CONDITIONS", "CLICK", "HERE", "SELECT", "COLOR", "COLOUR"
         }
 
-        for pat in code_patterns:
-            matches = re.findall(pat, pdp_text)
-            for m in matches:
-                candidate = m.strip().upper()
-                if candidate not in ignore_words and any(c.isalpha() for c in candidate):
-                    coupon_code = candidate
+        # 1. Check explicit JS copy functions or data attributes in FirstCry's HTML (100% exact)
+        html_code_matches = re.findall(
+            r"(?:copyCode| copyToClipboard|data-coupon|data-code|cpn_code|promo_code)[^>]*?['\"=>\s]([A-Z0-9]{5,12})\b",
+            pdp_html,
+            re.I
+        )
+        for m in html_code_matches:
+            cand = m.strip().upper()
+            if cand not in ignore_words and any(c.isalpha() for c in cand) and not cand.isalpha() or cand in ["BUYNOW", "TOYSALE", "DEALNOW", "FIRSTBUY"]:
+                if cand not in ignore_words and len(cand) >= 5:
+                    coupon_code = cand
                     break
-            if coupon_code:
-                break
 
+        # 2. Check visible text with case-insensitive regex (catches 'Use Code: T37JRP', 'Code - BUYNOW', etc.)
         if not coupon_code:
-            offer_elems = pdp_page.locator(".cpn_code, .offer_code, .promo-code, .coup_code, [class*='coupon'], [class*='offer']")
-            for idx in range(min(offer_elems.count(), 8)):
-                el_txt = offer_elems.nth(idx).inner_text()
-                m_dom = re.search(r"\b([A-Z]{2,6}[0-9]{2,6}[A-Z0-9]*)\b", el_txt)
-                if m_dom and m_dom.group(1) not in ignore_words:
-                    coupon_code = m_dom.group(1)
+            code_patterns = [
+                r"(?:Use\s+Code|Coupon\s+Code|Promo\s+Code|Use\s+Promo|Apply\s+Code|Code)\s*[:\-–]?\s*\b([A-Z0-9]{5,12})\b",
+                r"\b([A-Z0-9]{5,12})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout|applicable)",
+                r"(?:Flat|Extra)\s+\d+%\s*Off.*?Code\s*[:\-–]?\s*\b([A-Z0-9]{5,12})\b"
+            ]
+            for pat in code_patterns:
+                matches = re.findall(pat, pdp_text, flags=re.I | re.S)
+                for m in matches:
+                    candidate = m.strip().upper()
+                    if candidate not in ignore_words and any(c.isalpha() for c in candidate):
+                        coupon_code = candidate
+                        break
+                if coupon_code:
                     break
 
+        # 3. Check FirstCry offer DOM containers directly (using text_content to read hidden slides)
+        if not coupon_code:
+            offer_elems = pdp_page.locator(
+                ".cpn_code, .offer_code, .promo-code, .coup_code, .club_offer, "
+                "[class*='coupon'], [class*='offer'], [class*='cpn'], [id*='coupon'], [id*='offer']"
+            )
+            for idx in range(min(offer_elems.count(), 15)):
+                el_txt = offer_elems.nth(idx).text_content() or ""
+                # Match either alphanumeric codes (T37JRP, NFNOV, FC40) or uppercase promo words (BUYNOW)
+                for m_dom in re.findall(r"\b([A-Z0-9]{5,10})\b", el_txt):
+                    if m_dom.isupper() and m_dom not in ignore_words:
+                        if (any(c.isalpha() for c in m_dom) and any(c.isdigit() for c in m_dom)) or m_dom in ["BUYNOW", "NFNOV", "TOYSALE", "DEALNOW"]:
+                            coupon_code = m_dom
+                            break
+                if coupon_code:
+                    break
+
+        # Calculate best post-coupon price if a percentage discount is mentioned near the coupon
         if coupon_code:
-            pct_match = re.search(rf"(\d{{2}})%\s*Off.*?(?:{coupon_code})", pdp_text, re.I | re.S)
+            pct_match = re.search(rf"(\d{{1,2}})%\s*Off.*?(?:{coupon_code})", pdp_text, re.I | re.S)
             if not pct_match:
-                pct_match = re.search(rf"(?:{coupon_code}).*?(\d{{2}})%\s*Off", pdp_text, re.I | re.S)
+                pct_match = re.search(rf"(?:{coupon_code}).*?(\d{{1,2}})%\s*Off", pdp_text, re.I | re.S)
+            if not pct_match:
+                pct_match = re.search(r"(?:Flat|Extra|Save)\s+(\d{1,2})%\s*Off", pdp_text, re.I)
             if pct_match:
                 pct = float(pct_match.group(1))
-                if 10 <= pct <= 70 and expected_mrp:
-                    calculated_price = round(expected_mrp * (1 - pct / 100.0))
+                base_for_calc = expected_mrp if expected_mrp else fallback_price
+                if 5 <= pct <= 70 and base_for_calc:
+                    calculated_price = round(base_for_calc * (1 - pct / 100.0))
                     if calculated_price < best_price:
                         best_price = calculated_price
 
-        best_p_match = re.search(r"(?:Best\s+Price|Get\s+it\s+(?:for|at)|After\s+Coupon|Club\s+Price)\s*[:₹Rs.]*\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
+        best_p_match = re.search(
+            r"(?:Best\s+Price|Get\s+it\s+(?:for|at)|After\s+Coupon|Club\s+Price)\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)",
+            pdp_text,
+            re.I
+        )
         if best_p_match:
             candidate_p = float(best_p_match.group(1))
             if 40 < candidate_p < best_price:
@@ -706,13 +741,16 @@ def scrape_deals():
 
                             price = 0.0
                             scraped_mrp = None
-                            pm_discount = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)", card_text, re.I)
-                            pm_club = re.search(r"\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club Price", card_text, re.I)
+                            pm_discount = re.search(r"₹?\s*\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)", card_text, re.I)
+                            pm_club = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)|([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club\s*Price", card_text, re.I)
+                            pm_plain = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text)
                             if pm_discount:
                                 price = float(pm_discount.group(1))
                                 scraped_mrp = float(pm_discount.group(2))
                             elif pm_club:
-                                price = float(pm_club.group(1))
+                                price = float(pm_club.group(1) or pm_club.group(2))
+                            elif pm_plain:
+                                price = float(pm_plain.group(1))
 
                             if price <= 10:
                                 continue
