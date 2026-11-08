@@ -113,6 +113,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     t = re.sub(r'[®™©–—/]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
+    # STRICT FILTER: Instantly block display stands, acrylic cases, protectors, pins, tracks, etc.
     if any(skip in t for skip in [
         "display stand", "stand for", "acrylic case", "storage box", "wall mount",
         "case of", "collector case", "blind box", "track", "playset", "play set", "petrol station",
@@ -352,10 +353,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             "GET50CT", "CASHBACK", "PAYTM", "MOBIKWIK", "AMAZON"
         }
 
-        # Find all discount percentages on the page (e.g. 30% OFF, 37% OFF)
-        pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", pdp_text, re.I) if 10 <= float(p) <= 75]
-        best_pct = max(pcts) if pcts else 0.0
-
         offers_found = []
         offers_block_match = re.search(
             r"Offers\s+and\s+Discounts(.*?)(?:Bank\s+Offers|Product\s+Description|Specifications|You\s+May\s+Also\s+Like|$)",
@@ -365,14 +362,12 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         offers_section_text = offers_block_match.group(1) if offers_block_match else ""
 
         if offers_section_text:
-            # Check code right after 'T&C' or 'T&C >' (FirstCry's exact blue button coupon layout)
             for m in re.findall(r"T\s*&\s*C\s*>?\s*\n+\s*\b([A-Z0-9]{5,12})\b", offers_section_text):
                 c = m.strip().upper()
                 if c not in ignore_words and not any(bad in c for bad in ["GET", "CASH", "PAY", "CB"]):
                     if any(ch.isalpha() for ch in c) and any(ch.isdigit() for ch in c) or c in ["BUYNOW", "TOYSALE"]:
                         offers_found.append(c)
 
-            # Check standalone uppercase button lines in Offers section
             for line in offers_section_text.splitlines():
                 clean_line = re.sub(r"[^A-Z0-9]", "", line.strip())
                 if 5 <= len(clean_line) <= 12 and clean_line not in ignore_words:
@@ -380,7 +375,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                         if any(ch.isalpha() for ch in clean_line):
                             offers_found.append(clean_line)
 
-        # Fallback to general offer elements if none found in Offers block
         if not offers_found:
             offer_elems = pdp_page.locator(
                 ".cpn_code, .offer_code, .promo-code, .coup_code, .club_offer, "
@@ -395,10 +389,11 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                             offers_found.append(tok_u)
 
         if offers_found:
-            # Pick the first valid non-cashback code
             coupon_code = offers_found[0]
 
-        # Calculate discounted price using best percentage
+        pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", pdp_text, re.I) if 10 <= float(p) <= 75]
+        best_pct = max(pcts) if pcts else 0.0
+
         base_for_calc = expected_mrp if expected_mrp else fallback_price
         if 10 <= best_pct <= 75 and base_for_calc:
             calculated_price = round(base_for_calc * (1 - best_pct / 100.0))
@@ -777,14 +772,23 @@ def scrape_deals():
                             if title_key in seen_deals:
                                 continue
 
-                            price = 0.0
-                            scraped_mrp = None
-                            
-                            # Robust FirstCry price & MRP regex (handles both side-by-side and newline-separated card formats)
+                            # Located inside scrape_deals() -> FirstCry card loop
+                           price = 0.0
+                           scraped_mrp = None
+
+                            # 1. Explicit MRP text search
+                            mrp_search = re.search(r"MRP\.?\s*[:\-]?\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text, re.I)
+                            if mrp_search:
+                            try:
+                               scraped_mrp = float(mrp_search.group(1).replace(",", ""))
+                           except Exception:
+                           pass
+
+                            # 2. Price and discount block extraction
                             pm_discount = re.search(
-                                r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]+\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]*\s*\(\d+%\s*Off\)|\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)",
-                                card_text,
-                                re.I
+                            r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]+\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]*\s*\(\d+%\s*Off\)|\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)",
+                            card_text,
+                            re.I
                             )
                             pm_club = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)|([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club\s*Price", card_text, re.I)
                             pm_plain = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text)
