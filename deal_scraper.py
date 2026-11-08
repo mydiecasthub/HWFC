@@ -22,26 +22,19 @@ CACHE_FILE = "seen_deals.json"
 # Official Indian Retail MRP Rules (Strict ceilings across all lines)
 MRP_RULES = {
     "Hot Wheels": {
-        # Basics
-        "mainline": 179,               # Mainlines, Basic Themed Assortments, Mystery Models
-        "5_pack": 899,                 # Standard 5-Packs (including Ferrari 5-Pack, F1 5-Pack, Motor Show, etc.)
-        "color_reveal": 999,           # Color Reveal 2-Pack Drum
-        
-        # Silver-Label Premium
-        "silver_series": 299,          # Silver Series, Pantone, Ultra Hots, Neon Speeders, Vintage Racing, Celebrations, Automotive, Themed Entertainment, Batman Silver
-        "themed_6_pack": 1999,         # Silver Series / Themed 6-Packs (ZAMAC, Streets of Japan, Euro, Japanese)
-        
-        # Gold-Label Premium
-        "premium_single": 549,         # Boulevard, Car Culture, Pop Culture, Premium Fast & Furious, Replica Entertainment
-        "car_culture_2_pack": 1099,    # Car Culture 2-Packs
-        "team_transport": 1499,        # Team Transport
-        "diorama_or_box_set": 2999,    # Premium Display Sets / Collector Diorama Sets (3 Cars + 1 Hauler)
-        "premium_5_pack": 3999,        # Fast & Furious / Car Culture 5-Car Collector Bundles
-        
-        # Other Lines
-        "monster_truck": 399,          # 1:64 Monster Trucks
-        "f1_premium": 799,             # Formula 1 Premium Singles (Official MRP: ₹799)
-        "f1_2_pack": 1599,             # Formula 1 Premium 2-Packs
+        "mainline": 179,
+        "5_pack": 899,
+        "color_reveal": 999,
+        "silver_series": 299,
+        "themed_6_pack": 1999,
+        "premium_single": 549,
+        "car_culture_2_pack": 1099,
+        "team_transport": 1499,
+        "diorama_or_box_set": 2999,
+        "premium_5_pack": 3999,
+        "monster_truck": 399,
+        "f1_premium": 799,
+        "f1_2_pack": 1599,
     },
     "Matchbox": {
         "mainline": 179,
@@ -64,12 +57,9 @@ MRP_RULES = {
 }
 
 TARGET_URLS = [
-    # Amazon.in Targets (with multi-page support + price-filtered anti-scalper bands)
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels", "pages": 3},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&s=date-desc-rank", "pages": 2},
-    # Price-banded URL (₹120 to ₹560): Forces Amazon to hide ₹999+ scalpers and pack Mainlines, Silver Series & ₹549 Premiums on Page 1 & 2!
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A12000-56000", "pages": 3},
-    # Price-banded URL (₹500 to ₹1,550): Surfaces 5-Packs (₹899), F1 Premiums (₹799), Car Culture 2-Packs (₹1,099) & Team Transports (₹1,499)
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A50000-155000", "pages": 2},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+5+Pack", "pages": 2},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Formula+1", "pages": 2},
@@ -83,8 +73,6 @@ TARGET_URLS = [
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Batmobile+Batman", "pages": 2},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Matchbox+cars", "pages": 2},
     {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Majorette+cars", "pages": 2},
-    
-    # FirstCry Targets
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari"},
@@ -122,11 +110,11 @@ def determine_brand(title):
         return "Hot Wheels"
 
 def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
-    # Clean trademark symbols, registered marks, and special dashes for robust matching
     t = re.sub(r'[®™©–—/]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
     if any(skip in t for skip in [
+        "display stand", "stand for", "acrylic case", "storage box", "wall mount",
         "case of", "collector case", "blind box", "track", "playset", "play set", "petrol station",
         "garage", "carry case", "launcher", "protector", "lapel pin", "magnet", "rotiform",
         "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18", "red line club", "rlc", "elite 64",
@@ -134,13 +122,16 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     ]):
         return False, None
 
-    # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (e.g., 233/250, 45/250, 9/10) ---
+    is_amazon = "amazon" in store.lower()
+
+    # FIRSTCRY TRUST RULE: If FirstCry provides a scraped MRP from the page/card, trust it directly!
+    if not is_amazon and scraped_mrp and scraped_mrp >= 150:
+        return price <= scraped_mrp, scraped_mrp
+
     if brand == "Hot Wheels" and re.search(r'\b(250|[1-9][0-9]?)\s*/\s*(250|10)\b', title):
         if not any(s in t for s in ["silver series", "silver label", "pantone", "ultra hots", "neon speeders"]):
             target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
             return price <= target_mrp, target_mrp
-
-    is_amazon = "amazon" in store.lower()
 
     hw_5pack_themes = [
         "hw torque", "motor show", "street beasts", "retro racers", "nightburnerz",
@@ -149,7 +140,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "nissan", "ferrari 5", "f1 5", "formula 1 5", "fast & furious 5", "batman 5"
     ]
 
-    # Complete Formula 1 Premium Dictionary (MRP: ₹799)
     f1_keywords = [
         "formula 1", "formula one", "f1", "race team",
         "atlassian", "williams racing", "williams jkd", "bwt alpine", "alpine formula",
@@ -164,7 +154,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "hulkenberg", "bortoleto", "ocon", "bearman"
     ]
 
-    # Pop Culture & Replica Entertainment Franchises
     pop_culture_franchises = [
         "forza", "gran turismo", "cyberpunk", "back to the future", "time machine",
         "ghostbusters", "ecto-1", "teenage mutant ninja turtles", "tmnt", "party wagon",
@@ -179,49 +168,34 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "falken", "greddy", "bilstein", "yokohama", "toyo tires", "nismo", "mugen", "spoon"
     ]
 
-    # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
     if brand == "Hot Wheels":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 299, 399, 549, 699, 799, 899, 999, 1099, 1499, 1599, 1999, 2999, 3999, 4000]:
-            target_mrp = 3999 if round(scraped_mrp) == 4000 else round(scraped_mrp)
-            return price <= target_mrp, target_mrp
-
-        # Gold-Label Premium 5-Pack Collector Bundles (F&F / Car Culture Box Set) -> ₹3,999
         if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
             return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
 
-        # Basics: Standard 5-Packs (including Ferrari 5-Pack, F1 5-Pack, F&F basic 5-pack, Motor Show, etc.) -> ₹899
         if (any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars"]) or (
             any(theme in t for theme in hw_5pack_themes) and 400 <= price <= 899
         )) and "silver" not in t and "car culture" not in t and "real riders" not in t:
             return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
 
-        # Silver-Label Themed 6-Packs -> ₹1,999
         if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
             return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
 
-        # Formula 1 Premium 2-Packs -> ₹1,599
         if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
             return price <= MRP_RULES["Hot Wheels"]["f1_2_pack"], MRP_RULES["Hot Wheels"]["f1_2_pack"]
 
-        # Gold-Label Car Culture 2-Packs -> ₹1,099
         if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
             return price <= MRP_RULES["Hot Wheels"]["car_culture_2_pack"], MRP_RULES["Hot Wheels"]["car_culture_2_pack"]
 
-        # Basics: Color Reveal 2-Pack -> ₹999
         if "color reveal" in t or "colour reveal" in t:
             return price <= MRP_RULES["Hot Wheels"]["color_reveal"], MRP_RULES["Hot Wheels"]["color_reveal"]
 
-        # Gold-Label Team Transport -> ₹1,499
         if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on", "transport hauler"]):
             return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
 
-        # Gold-Label Premium Display Sets / Dioramas -> ₹2,999
         if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
             return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
 
     elif brand == "Matchbox":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 299, 399, 599, 649, 899, 999, 1599]:
-            return price <= scraped_mrp, round(scraped_mrp)
         if any(k in t for k in ["8 pack", "8-pack", "pack of 8", "9 pack", "9-pack", "pack of 9"]):
             return price <= MRP_RULES["Matchbox"]["8_or_9_pack"], MRP_RULES["Matchbox"]["8_or_9_pack"]
         if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "set of 5"]):
@@ -232,8 +206,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             return price <= MRP_RULES["Matchbox"]["working_rigs"], MRP_RULES["Matchbox"]["working_rigs"]
 
     elif brand == "Majorette":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 199, 399, 599, 699, 799, 899, 1199, 1699]:
-            return price <= scraped_mrp, round(scraped_mrp)
         if any(k in t for k in ["5 piece", "5-piece", "5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "gift set", "car set", "set of 5"]):
             if any(ed in t for ed in ["porsche", "black edition", "vintage", "jdm", "racing", "mercedes", "lamborghini", "deluxe", "premium", "limited", "color changer"]):
                 return price <= MRP_RULES["Majorette"]["edition_5_pack"], MRP_RULES["Majorette"]["edition_5_pack"]
@@ -242,7 +214,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         if "trailer" in t and any(k in t for k in ["2 die", "2 cars", "wagon"]):
             return price <= MRP_RULES["Majorette"]["trailer_set"], MRP_RULES["Majorette"]["trailer_set"]
 
-    # --- 2. GENERAL MULTI-PACK MULTIPLIER LOOP ---
     for num_cars in range(2, 11):
         if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}pc" in t or 
             f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
@@ -272,20 +243,16 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             expected_mrp = per_car_mrp * num_cars
             return price <= expected_mrp, expected_mrp
 
-    # --- 3. SINGLE CARDS CLASSIFICATION (STRICT LINE MATCHING) ---
     if brand == "Hot Wheels":
-        # 1:64 Monster Trucks -> ₹399
         if "monster truck" in t:
             return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
 
-        # Formula 1 Premium Singles -> ₹799
         elif any(k in t for k in f1_keywords) and (
             any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
             or (scraped_mrp and round(scraped_mrp) == 799)
         ):
             return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
 
-        # Gold-Label Premium Singles -> ₹549 (Boulevard, Car Culture, Pop Culture, Replica Entertainment)
         elif any(k in t for k in [
             "boulevard", "car culture", "pop culture", "real riders", "metal/metal", "metal metal",
             "replica from popular movie", "premium toy car, truck or van", "modern classics",
@@ -295,14 +262,12 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         ]) or ("premium" in t and "silver" not in t):
             return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
 
-        # Pop Culture / Entertainment Franchises where Amazon omits 'Pop Culture' or 'Premium' from the title
         elif any(f in t for f in pop_culture_franchises):
             if scraped_mrp and round(scraped_mrp) == 549:
                 return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
             else:
                 return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
 
-        # Silver-Label Premium Singles -> ₹299
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
             "vintage racing", "celebrations", "themed entertainment", "automotive",
@@ -311,7 +276,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         ]):
             return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
 
-        # Basics / Mainlines / Mystery Models -> ₹179
         else:
             return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
 
@@ -371,8 +335,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
         time.sleep(2.0)
-
-        # Scroll down so lazy-loaded 'Offers and Discounts' block renders
         pdp_page.evaluate("window.scrollBy(0, 650)")
         time.sleep(1.2)
 
@@ -386,12 +348,15 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             "VALID", "TERMS", "CONDITIONS", "CLICK", "HERE", "SELECT", "COLOR",
             "COLOUR", "RETURN", "CHECK", "MEMB", "MEMBER", "MEMBERS", "FEDERAL",
             "CREDIT", "DEBIT", "CARDS", "INSTANT", "BANK", "FLAT", "EXTRA", "CLUB",
-            "SHORTLIST", "ADDTOCART", "SHARE", "GIFT", "WRAP", "BESTSELLER"
+            "SHORTLIST", "ADDTOCART", "SHARE", "GIFT", "WRAP", "BESTSELLER",
+            "GET50CT", "CASHBACK", "PAYTM", "MOBIKWIK", "AMAZON"
         }
 
-        offers_found = []
+        # Find all discount percentages on the page (e.g. 30% OFF, 37% OFF)
+        pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", pdp_text, re.I) if 10 <= float(p) <= 75]
+        best_pct = max(pcts) if pcts else 0.0
 
-        # 1. Isolate the 'Offers and Discounts' section (above 'Bank Offers')
+        offers_found = []
         offers_block_match = re.search(
             r"Offers\s+and\s+Discounts(.*?)(?:Bank\s+Offers|Product\s+Description|Specifications|You\s+May\s+Also\s+Like|$)",
             pdp_text,
@@ -400,59 +365,45 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         offers_section_text = offers_block_match.group(1) if offers_block_match else ""
 
         if offers_section_text:
-            pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", offers_section_text, re.I) if 5 <= float(p) <= 75]
-            max_sec_pct = max(pcts) if pcts else 0.0
-
+            # Check code right after 'T&C' or 'T&C >' (FirstCry's exact blue button coupon layout)
             for m in re.findall(r"T\s*&\s*C\s*>?\s*\n+\s*\b([A-Z0-9]{5,12})\b", offers_section_text):
                 c = m.strip().upper()
-                if c not in ignore_words and any(ch.isalpha() for ch in c):
-                    offers_found.append((max_sec_pct, c))
+                if c not in ignore_words and not any(bad in c for bad in ["GET", "CASH", "PAY", "CB"]):
+                    if any(ch.isalpha() for ch in c) and any(ch.isdigit() for ch in c) or c in ["BUYNOW", "TOYSALE"]:
+                        offers_found.append(c)
 
+            # Check standalone uppercase button lines in Offers section
             for line in offers_section_text.splitlines():
                 clean_line = re.sub(r"[^A-Z0-9]", "", line.strip())
-                if 5 <= len(clean_line) <= 12 and clean_line == line.strip().upper().replace(" ", "") and clean_line not in ignore_words:
-                    if any(ch.isalpha() for ch in clean_line):
-                        offers_found.append((max_sec_pct, clean_line))
+                if 5 <= len(clean_line) <= 12 and clean_line not in ignore_words:
+                    if not any(bad in clean_line for bad in ["GET", "CASH", "PAY", "CB"]):
+                        if any(ch.isalpha() for ch in clean_line):
+                            offers_found.append(clean_line)
 
-        # 2. Read ALL offer DOM slides (including off-screen horizontal slider items!)
-        offer_elems = pdp_page.locator(
-            ".cpn_code, .offer_code, .promo-code, .coup_code, .club_offer, "
-            "[class*='coupon'], [class*='offer'], [class*='cpn'], [id*='coupon'], [id*='offer']"
-        )
-        for idx in range(min(offer_elems.count(), 20)):
-            el_txt = offer_elems.nth(idx).text_content() or ""
-            el_pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", el_txt, re.I) if 5 <= float(p) <= 75]
-            el_max_pct = max(el_pcts) if el_pcts else 0.0
-            for tok in re.findall(r"\b([A-Z0-9]{5,10})\b", el_txt):
-                if tok.isupper() and tok not in ignore_words and any(ch.isalpha() for ch in tok):
-                    if any(ch.isdigit() for ch in tok) or tok in ["BUYNOW", "TOYSALE", "DEALNOW", "FIRSTBUY"]:
-                        offers_found.append((el_max_pct, tok))
-
-        # 3. Check explicit JS copy functions or data attributes in FirstCry's raw HTML
-        for m in re.findall(
-            r"(?:copyCode|copyToClipboard|data-coupon|data-code|cpn_code|promo_code)[^>]*?['\"=>\s]([A-Z0-9]{5,12})\b",
-            pdp_html,
-            re.I
-        ):
-            cand = m.strip().upper()
-            if cand not in ignore_words and len(cand) >= 5 and any(ch.isalpha() for ch in cand):
-                offers_found.append((0.0, cand))
+        # Fallback to general offer elements if none found in Offers block
+        if not offers_found:
+            offer_elems = pdp_page.locator(
+                ".cpn_code, .offer_code, .promo-code, .coup_code, .club_offer, "
+                "[class*='coupon'], [class*='offer'], [class*='cpn']"
+            )
+            for idx in range(min(offer_elems.count(), 15)):
+                el_txt = offer_elems.nth(idx).text_content() or ""
+                for tok in re.findall(r"\b([A-Z0-9]{5,10})\b", el_txt):
+                    tok_u = tok.upper()
+                    if tok_u not in ignore_words and not any(bad in tok_u for bad in ["GET", "CASH", "PAY", "CB"]):
+                        if any(ch.isalpha() for ch in tok_u):
+                            offers_found.append(tok_u)
 
         if offers_found:
-            offers_found.sort(key=lambda x: x[0], reverse=True)
-            best_pct, coupon_code = offers_found[0]
+            # Pick the first valid non-cashback code
+            coupon_code = offers_found[0]
 
-            if best_pct == 0.0:
-                search_area = offers_section_text if offers_section_text else pdp_text
-                pct_match = re.search(r"(?:FLAT|EXTRA|SAVE)?\s*(\d{1,2})%\s*OFF", search_area, re.I)
-                if pct_match:
-                    best_pct = float(pct_match.group(1))
-
-            base_for_calc = expected_mrp if expected_mrp else fallback_price
-            if 5 <= best_pct <= 75 and base_for_calc:
-                calculated_price = round(base_for_calc * (1 - best_pct / 100.0))
-                if calculated_price < best_price:
-                    best_price = calculated_price
+        # Calculate discounted price using best percentage
+        base_for_calc = expected_mrp if expected_mrp else fallback_price
+        if 10 <= best_pct <= 75 and base_for_calc:
+            calculated_price = round(base_for_calc * (1 - best_pct / 100.0))
+            if calculated_price < best_price:
+                best_price = calculated_price
 
         best_p_match = re.search(
             r"(?:Best\s+Price|Get\s+it\s+(?:for|at)|After\s+Coupon|Club\s+Price)\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)",
@@ -464,7 +415,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             if 40 < candidate_p < best_price:
                 best_price = candidate_p
 
-        # Scroll back up to capture the clean main product card screenshot
         pdp_page.evaluate("window.scrollTo(0, 0)")
         time.sleep(0.3)
 
@@ -661,7 +611,6 @@ def scrape_deals():
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
-        # Warm up Amazon session once before iterating targets
         try:
             page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
             time.sleep(1.5)
@@ -684,7 +633,6 @@ def scrape_deals():
                         page.goto(paged_url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
                         time.sleep(2.5)
 
-                        # Scroll down the page so lazy-loaded cards #25 to #60 render their prices and images
                         for _ in range(2):
                             page.evaluate("window.scrollBy(0, 1800)")
                             time.sleep(0.8)
@@ -753,8 +701,8 @@ def scrape_deals():
                                 coupon = extract_amazon_coupon(card_text)
                                 delivery = extract_amazon_delivery(card_text)
 
-                                inner_box = card.locator(".s-card-container").first
-                                target_shot = inner_box if inner_box.count() > 0 else card
+                                img_target = card.locator(".s-image-container, .a-section.aok-relative.s-image-fixed-height, .s-card-container").first
+                                target_shot = img_target if img_target.count() > 0 else card
 
                                 img_path = f"temp_deal_{asin}.png"
                                 target_shot.screenshot(path=img_path)
@@ -780,7 +728,6 @@ def scrape_deals():
                 elif "firstcry" in store.lower():
                     page.goto(url, timeout=45000, wait_until="domcontentloaded")
                     time.sleep(3)
-                    # Deep scroll 4 times so lazy-loaded 5-Packs, Ferraris, and F1 cars below the top 40 are loaded!
                     for _ in range(4):
                         page.evaluate("window.scrollBy(0, 1400)")
                         time.sleep(1.2)
@@ -832,12 +779,20 @@ def scrape_deals():
 
                             price = 0.0
                             scraped_mrp = None
-                            pm_discount = re.search(r"₹?\s*\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)", card_text, re.I)
+                            
+                            # Robust FirstCry price & MRP regex (handles both side-by-side and newline-separated card formats)
+                            pm_discount = re.search(
+                                r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]+\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]*\s*\(\d+%\s*Off\)|\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)",
+                                card_text,
+                                re.I
+                            )
                             pm_club = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)|([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club\s*Price", card_text, re.I)
                             pm_plain = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text)
+
                             if pm_discount:
-                                price = float(pm_discount.group(1))
-                                scraped_mrp = float(pm_discount.group(2))
+                                g = pm_discount.groups()
+                                price = float(g[0] or g[2])
+                                scraped_mrp = float(g[1] or g[3])
                             elif pm_club:
                                 price = float(pm_club.group(1) or pm_club.group(2))
                             elif pm_plain:
