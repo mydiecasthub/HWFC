@@ -773,22 +773,22 @@ def scrape_deals():
                                 continue
 
                             # Located inside scrape_deals() -> FirstCry card loop
-                           price = 0.0
-                           scraped_mrp = None
-
-                            # 1. Explicit MRP text search
+                         price = 0.0
+                            scraped_mrp = None
+                            
+                            # 1. Look for explicit MRP label on FirstCry card text first (e.g., "MRP: ₹599")
                             mrp_search = re.search(r"MRP\.?\s*[:\-]?\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text, re.I)
                             if mrp_search:
-                            try:
-                               scraped_mrp = float(mrp_search.group(1).replace(",", ""))
-                           except Exception:
-                           pass
+                                try:
+                                    scraped_mrp = float(mrp_search.group(1).replace(",", ""))
+                                except Exception:
+                                    pass
 
-                            # 2. Price and discount block extraction
+                            # 2. Extract selling price and discount block
                             pm_discount = re.search(
-                            r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]+\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]*\s*\(\d+%\s*Off\)|\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)",
-                            card_text,
-                            re.I
+                                r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]+\s*₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n]*\s*\(\d+%\s*Off\)|\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)",
+                                card_text,
+                                re.I
                             )
                             pm_club = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)|([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club\s*Price", card_text, re.I)
                             pm_plain = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text)
@@ -796,7 +796,8 @@ def scrape_deals():
                             if pm_discount:
                                 g = pm_discount.groups()
                                 price = float(g[0] or g[2])
-                                scraped_mrp = float(g[1] or g[3])
+                                if not scraped_mrp:
+                                    scraped_mrp = float(g[1] or g[3])
                             elif pm_club:
                                 price = float(pm_club.group(1) or pm_club.group(2))
                             elif pm_plain:
