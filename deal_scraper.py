@@ -114,6 +114,13 @@ def determine_brand(title):
         return "Hot Wheels"
 
 
+def cap_with_scraped_mrp(expected_mrp, price, scraped_mrp):
+    # If the store prints a valid official MRP that is LOWER than our ceiling (e.g. ₹699 on older Super Rigs), use the lower MRP
+    if scraped_mrp and 150 <= scraped_mrp < expected_mrp:
+        expected_mrp = round(scraped_mrp)
+    return price <= expected_mrp, expected_mrp
+
+
 def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     t = re.sub(r'[®™©–—/|]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
@@ -138,18 +145,10 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     if not is_amazon and scraped_mrp and scraped_mrp >= 150:
         return price <= scraped_mrp, round(scraped_mrp)
 
-    # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (e.g., 233/250, 45/250, 9/10) ---
-    if brand == "Hot Wheels" and re.search(r'\b(250|[1-9][0-9]?)\s*/\s*(250|10)\b', title):
-        if not any(s in t for s in ["silver series", "silver label", "pantone", "ultra hots", "neon speeders"]):
-            target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
-            return price <= target_mrp, target_mrp
-
-    hw_5pack_themes = [
-        "hw torque", "motor show", "street beasts", "retro racers", "nightburnerz",
-        "x-raycers", "exotics", "hot trucks", "mud studs", "hw flames", "hw city",
-        "hw track", "action pack", "stunt", "car meet", "mopar", "mustang", "corvette",
-        "nissan", "ferrari 5", "f1 5", "formula 1 5", "fast & furious 5", "batman 5", "batman themed"
-    ]
+    # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (Matches 1/250 to 250/250, e.g. 183/250, 198/250, 207/250) ---
+    if brand == "Hot Wheels" and re.search(r'\b([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|250)\s*/\s*250\b', title):
+        target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
+        return cap_with_scraped_mrp(target_mrp, price, scraped_mrp)
 
     f1_keywords = [
         "formula 1", "formula one", "f1", "race team",
@@ -163,6 +162,14 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "verstappen", "perez", "leclerc", "hamilton", "norris", "piastri", "russell", "antonelli",
         "alonso", "stroll", "sainz", "albon", "gasly", "doohan", "colapinto", "tsunoda", "lawson",
         "hulkenberg", "bortoleto", "ocon", "bearman"
+    ]
+
+    # Car Culture / Boulevard / Pop Culture series names (MRP: ₹549)
+    car_culture_and_boulevard_keywords = [
+        "boulevard", "car culture", "pop culture", "modern classics", "morden classics",
+        "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
+        "spettacolare", "slide street", "drag strip", "ronin run", "mountain drifters", "auto strasse",
+        "forza horizon", "nismo 270r", "s14", "silvia", "kool kombi", "mattel 80th", "replica from popular movie"
     ]
 
     pop_culture_franchises = [
@@ -183,72 +190,70 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     if brand == "Hot Wheels":
         # Block fake Amazon "Complete Set of 5" Silver Series single-car traps (e.g. Surfs Up @ ₹499)
         if "complete set" in t and any(s in t for s in ["silver series", "surfs up", "surf s up"]):
-            return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
 
-        # Super Rigs / Heavy Haulers -> ₹999
-        if any(k in t for k in ["super rig", "super rigs", "heavy doody", "hauling rig", "truck and car"]):
-            return price <= MRP_RULES["Hot Wheels"]["super_rig"], MRP_RULES["Hot Wheels"]["super_rig"]
+        # Gold-Label Team Transport -> ₹1,499
+        if any(k in t for k in ["team transport", "kousoku", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on", "transport hauler"]):
+            return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
+
+        # Super Rigs / Heavy Haulers -> ₹999 (or ₹699 if Amazon prints M.R.P: ₹699)
+        if any(k in t for k in ["super rig", "super rigs", "heavy doody", "hauling rig", "transporter vehicle with 1"]):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["super_rig"], price, scraped_mrp)
 
         # Gold-Label Premium 5-Pack Collector Bundles (F&F / Car Culture) -> ₹3,999
-        if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
-            return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
+        if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5-car pack", "5 car pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_5_pack"], price, scraped_mrp)
 
-        # Basics: Standard & Character 5-Packs -> ₹899
-        if (any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars", "batman themed"]) or (
-            any(theme in t for theme in hw_5pack_themes) and 400 <= price <= 899
-        )) and "silver" not in t and "car culture" not in t and "real riders" not in t:
-            return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
+        # Basics: Standard 5-Packs (STRICT: Must explicitly say 5-Pack / Pack of 5 / Set of 5 / 5-Car Pack!) -> ₹899
+        if any(k in t for k in ["5 pack", "5-pack", "5-car pack", "5 car pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars"]) and "silver" not in t and "car culture" not in t and "real riders" not in t:
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["5_pack"], price, scraped_mrp)
 
         # Silver-Label Themed 6-Packs -> ₹1,999
-        if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
-            return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
+        if any(k in t for k in ["6-pack", "6 pack", "6-car pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["themed_6_pack"], price, scraped_mrp)
 
         # Formula 1 Premium 2-Packs -> ₹1,599
-        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
-            return price <= MRP_RULES["Hot Wheels"]["f1_2_pack"], MRP_RULES["Hot Wheels"]["f1_2_pack"]
+        if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["f1_2_pack"], price, scraped_mrp)
 
         # Gold-Label Car Culture 2-Packs -> ₹1,099
-        if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
-            return price <= MRP_RULES["Hot Wheels"]["car_culture_2_pack"], MRP_RULES["Hot Wheels"]["car_culture_2_pack"]
+        if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["car_culture_2_pack"], price, scraped_mrp)
 
         # Basics: Color Reveal 2-Pack -> ₹999
         if "color reveal" in t or "colour reveal" in t:
-            return price <= MRP_RULES["Hot Wheels"]["color_reveal"], MRP_RULES["Hot Wheels"]["color_reveal"]
-
-        # Gold-Label Team Transport -> ₹1,499
-        if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on", "transport hauler"]):
-            return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["color_reveal"], price, scraped_mrp)
 
         # Gold-Label Premium Display Sets / Dioramas -> ₹2,999
         if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
-            return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["diorama_or_box_set"], price, scraped_mrp)
 
     elif brand == "Matchbox":
         if any(k in t for k in ["8 pack", "8-pack", "pack of 8", "9 pack", "9-pack", "pack of 9"]):
-            return price <= MRP_RULES["Matchbox"]["8_or_9_pack"], MRP_RULES["Matchbox"]["8_or_9_pack"]
-        if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "set of 5"]):
-            return price <= MRP_RULES["Matchbox"]["5_pack"], MRP_RULES["Matchbox"]["5_pack"]
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["8_or_9_pack"], price, scraped_mrp)
+        if any(k in t for k in ["5 pack", "5-pack", "5-car pack", "pack of 5", "5 pcs", "gift pack", "set of 5"]):
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["5_pack"], price, scraped_mrp)
         if "convoy" in t:
-            return price <= MRP_RULES["Matchbox"]["convoy"], MRP_RULES["Matchbox"]["convoy"]
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["convoy"], price, scraped_mrp)
         if any(k in t for k in ["working rigs", "working rig", "adventure pack"]):
-            return price <= MRP_RULES["Matchbox"]["working_rigs"], MRP_RULES["Matchbox"]["working_rigs"]
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["working_rigs"], price, scraped_mrp)
 
     elif brand == "Majorette":
-        if any(k in t for k in ["5 piece", "5-piece", "5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "gift set", "car set", "set of 5"]):
+        if any(k in t for k in ["5 piece", "5-piece", "5 pack", "5-pack", "5-car pack", "pack of 5", "5 pcs", "gift pack", "gift set", "car set", "set of 5"]):
             if any(ed in t for ed in ["porsche", "black edition", "vintage", "jdm", "racing", "mercedes", "lamborghini", "deluxe", "premium", "limited", "color changer"]):
-                return price <= MRP_RULES["Majorette"]["edition_5_pack"], MRP_RULES["Majorette"]["edition_5_pack"]
+                return cap_with_scraped_mrp(MRP_RULES["Majorette"]["edition_5_pack"], price, scraped_mrp)
             else:
-                return price <= MRP_RULES["Majorette"]["street_5_pack"], MRP_RULES["Majorette"]["street_5_pack"]
+                return cap_with_scraped_mrp(MRP_RULES["Majorette"]["street_5_pack"], price, scraped_mrp)
         if any(k in t for k in ["trailer", "isuzu", "transporter", "hauler", "truck"]):
-            return price <= MRP_RULES["Majorette"]["trailer_set"], MRP_RULES["Majorette"]["trailer_set"]
+            return cap_with_scraped_mrp(MRP_RULES["Majorette"]["trailer_set"], price, scraped_mrp)
 
     # --- 2. GENERAL MULTI-PACK MULTIPLIER LOOP ---
-    for num_cars in range(2, 11):
-        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}pc" in t or
-                f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or
-                f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
+    for num_cars in range(2, 21):
+        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}-car pack" in t or
+                f"{num_cars} car pack" in t or f"{num_cars}pc" in t or f"{num_cars} pcs" in t or f"set of {num_cars}" in t or
+                f"set {num_cars}" in t or f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
             if brand == "Hot Wheels":
-                if any(k in t for k in f1_keywords) and "premium" in t:
+                if any(k in t for k in f1_keywords) and "premium" in t and not any(cc in t for cc in car_culture_and_boulevard_keywords):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
                 elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie"]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
@@ -270,53 +275,54 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
                 else:
                     per_car_mrp = MRP_RULES["Majorette"]["street"]
             expected_mrp = per_car_mrp * num_cars
-            return price <= expected_mrp, expected_mrp
+            return cap_with_scraped_mrp(expected_mrp, price, scraped_mrp)
 
     # --- 3. SINGLE CARDS CLASSIFICATION (STRICT LINE MATCHING) ---
     if brand == "Hot Wheels":
         if "monster truck" in t:
-            return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["monster_truck"], price, scraped_mrp)
+
+        # Check Car Culture / Boulevard / Modern Classics BEFORE F1
+        elif any(cc in t for cc in car_culture_and_boulevard_keywords):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
 
         elif any(k in t for k in f1_keywords) and (
             any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
             or (scraped_mrp and round(scraped_mrp) == 799)
         ):
-            return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["f1_premium"], price, scraped_mrp)
 
         elif any(k in t for k in [
-            "boulevard", "car culture", "pop culture", "real riders", "metal/metal", "metal metal",
-            "replica from popular movie", "premium toy car, truck or van", "modern classics",
-            "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
-            "spettacolare", "slide street", "drag strip", "ronin run", "mountain drifters", "auto strasse",
-            "forza horizon"
+            "real riders", "metal/metal", "metal metal", "premium toy car, truck or van"
         ]) or ("premium" in t and "silver" not in t):
-            return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
 
         elif any(f in t for f in pop_culture_franchises):
             if scraped_mrp and round(scraped_mrp) == 549:
                 return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
             else:
-                return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
+                return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
 
+        # Silver-Label Singles (Includes Vintage Racing / Vintage Grand Prix / Exclusive Wheels) -> ₹299
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
-            "vintage racing", "celebrations", "themed entertainment", "automotive",
+            "vintage racing", "vintage grand prix", "vintage 6", "vintage 7", "exclusive wheels",
+            "themed packaging", "celebrations", "themed entertainment", "automotive",
             "pantone", "performance trucks", "streets of japan", "anniversary",
             "classic tv series batmobile", "batman forever", "the batman", "batman classic", "arkham", "85th anniversary"
         ]):
-            return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
 
         else:
-            return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
     elif brand == "Matchbox":
         if "collectors" in t or "true grip" in t or "sky busters" in t:
-            return price <= MRP_RULES["Matchbox"]["collectors"], MRP_RULES["Matchbox"]["collectors"]
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["collectors"], price, scraped_mrp)
         elif "moving parts" in t:
-            return price <= MRP_RULES["Matchbox"]["moving_parts"], MRP_RULES["Matchbox"]["moving_parts"]
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["moving_parts"], price, scraped_mrp)
         else:
-            expected = MRP_RULES["Matchbox"]["mainline"]
-            return price <= expected, expected
+            return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["mainline"], price, scraped_mrp)
 
     elif brand == "Majorette":
         if any(k in t for k in ["tune-ups", "tune ups", "tune up"]):
@@ -331,7 +337,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             expected = MRP_RULES["Majorette"]["premium"]
         else:
             expected = MRP_RULES["Majorette"]["street"]
-        return price <= expected, expected
+        return cap_with_scraped_mrp(expected, price, scraped_mrp)
 
     return False, None
 
@@ -357,6 +363,69 @@ def extract_amazon_delivery(card_text):
         return "FREE"
 
     return None
+
+
+def capture_square_amazon_card(page, card, img_path):
+    """
+    1. Hides clutter rows (Ages, bank offers, Add to Cart button).
+    2. Anchors the top of the screenshot directly to 16px ABOVE the product <img> element
+       so the top of the car photo is NEVER clipped!
+    3. Pads the horizontal width so the aspect ratio stays in Telegram's un-cropped zone.
+    """
+    try:
+        clip_box = card.evaluate(
+            """el => {
+                // 1. Hide bottom clutter rows so the card height is compact
+                const nodes = el.querySelectorAll('.a-row, .s-padding-left-small > div, span, div');
+                for (const d of nodes) {
+                    const txt = (d.innerText || '').trim();
+                    if (/^(Ages:|Up to 5% back|Or fastest delivery|\\d+K?\\+ bought in past month|Service:|Add to cart)/i.test(txt)) {
+                        if (d.children.length <= 4 && !d.querySelector('img')) {
+                            d.style.display = 'none';
+                        }
+                    }
+                }
+                const btns = el.querySelectorAll('button, .a-button, [data-action="s-add-to-cart"]');
+                for (const b of btns) b.style.display = 'none';
+
+                // 2. Scroll the product image itself to y = 180px in the 1400px viewport
+                const img = el.querySelector('img.s-image') || el;
+                const imgRect1 = img.getBoundingClientRect();
+                window.scrollBy(0, imgRect1.top - 180);
+
+                const cardRect = el.getBoundingClientRect();
+                const imgRect2 = img.getBoundingClientRect();
+                const topY = Math.min(cardRect.y, imgRect2.y) - 16;
+                const bottomY = cardRect.bottom + 8;
+
+                return {
+                    x: cardRect.x,
+                    y: topY,
+                    width: cardRect.width,
+                    height: bottomY - topY
+                };
+            }"""
+        )
+        time.sleep(0.4)
+
+        if clip_box and clip_box["width"] > 50 and clip_box["height"] > 50:
+            raw_w = clip_box["width"]
+            raw_h = min(clip_box["height"], 500)
+            # Expand horizontal width to at least 82% of height so Telegram mobile never center-crops the vertical image!
+            target_w = max(raw_w + 16, round(raw_h * 0.82))
+            pad_x = (target_w - raw_w) / 2.0
+
+            x = max(0, clip_box["x"] - pad_x)
+            y = max(0, clip_box["y"])
+            w = min(1366 - x, target_w)
+            h = min(1400 - y, raw_h)
+
+            page.screenshot(path=img_path, clip={"x": x, "y": y, "width": w, "height": h})
+            return
+    except Exception:
+        pass
+
+    card.screenshot(path=img_path)
 
 
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
@@ -660,7 +729,6 @@ def scrape_deals():
             ]
         )
 
-        # Tall 1366x1400 viewport ensures tall Amazon cards never clip against the top or bottom of the screen!
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1366, "height": 1400},
@@ -692,7 +760,6 @@ def scrape_deals():
                         page.goto(paged_url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
                         time.sleep(2.5)
 
-                        # Hide any sticky Amazon headers/banners so they never overlap or clip cards
                         page.add_style_tag(content="#navbar-main, #nav-belt, .s-Quantities-bar, .a-sticky-top { position: static !important; }")
 
                         for _ in range(2):
@@ -716,7 +783,6 @@ def scrape_deals():
                                 if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                     continue
 
-                                # FIXED AMAZON TITLE: Combine all <h2> elements inside the card (Brand <h2> + Model Name <h2>)
                                 h2_texts = [t.strip() for t in card.locator("h2").all_inner_texts() if t.strip()]
                                 if len(h2_texts) >= 2:
                                     if h2_texts[0].lower() in h2_texts[1].lower():
@@ -788,37 +854,11 @@ def scrape_deals():
                                 coupon = extract_amazon_coupon(card_text)
                                 delivery = extract_amazon_delivery(card_text)
 
-                                # FIXED SCREENSHOT ALIGNMENT:
-                                # 1. Scroll the card + image container into the exact middle of our tall 1400px viewport
                                 inner_box = card.locator(".s-card-container").first
                                 target_shot = inner_box if inner_box.count() > 0 else card
-                                target_shot.evaluate(
-                                    "el => { const rect = el.getBoundingClientRect(); "
-                                    "window.scrollBy(0, rect.top - 180); }"
-                                )
-                                time.sleep(0.6)
 
-                                # 2. Ensure the lazy-loaded <img> inside the card has finished decoding
-                                card_img = card.locator("img.s-image").first
-                                if card_img.count() > 0:
-                                    try:
-                                        card_img.evaluate("img => img.complete || new Promise(r => { img.onload = r; img.onerror = r; setTimeout(r, 800); })")
-                                    except Exception:
-                                        pass
-
-                                # 3. Capture via page.screenshot(clip=...) using exact viewport coordinates so Playwright NEVER auto-scrolls and clips the top!
                                 img_path = f"temp_deal_{asin}.png"
-                                box = target_shot.bounding_box()
-                                if box and box["width"] > 50 and box["height"] > 50:
-                                    clip_rect = {
-                                        "x": max(0, box["x"] - 4),
-                                        "y": max(0, box["y"] - 4),
-                                        "width": min(1366 - max(0, box["x"] - 4), box["width"] + 8),
-                                        "height": min(1400 - max(0, box["y"] - 4), box["height"] + 8)
-                                    }
-                                    page.screenshot(path=img_path, clip=clip_rect)
-                                else:
-                                    target_shot.screenshot(path=img_path)
+                                capture_square_amazon_card(page, target_shot, img_path)
 
                                 seen_deals.add(asin)
                                 seen_deals.add(amz_title_key)
