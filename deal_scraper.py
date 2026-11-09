@@ -403,7 +403,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         club_p_match = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
         if club_p_match:
             cp_val = float(club_p_match.group(1))
-            # Handle FirstCry superscript paise where "43126" means "431.26" if MRP is < 2000
             if cp_val > pdp_mrp and cp_val > 10000:
                 cp_val = round(cp_val / 100.0)
             if 40 < cp_val < best_price:
@@ -430,28 +429,23 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         offers_section_text = offers_block_match.group(1) if offers_block_match else ""
 
         if offers_section_text:
-            # Split the Offers and Discounts section into individual offer cards separated by 'T&C'
             offer_cards = re.split(r"T\s*&\s*C\s*>?", offers_section_text)
             for idx in range(len(offer_cards) - 1):
                 card_header = offer_cards[idx]
                 card_footer = offer_cards[idx + 1]
 
-                # Skip cashback / wallet offer slides completely
                 if any(cb_word in card_header.lower() for cb_word in ["cashback", "club cash", "wallet", "paytm"]):
                     continue
 
-                # Extract the code sitting right after 'T&C >' in card_footer
                 code_m = re.search(r"^\s*\n*\s*\b([A-Z0-9]{5,12})\b", card_footer)
                 if code_m:
                     c = code_m.group(1).strip().upper()
                     if c not in ignore_words and not any(bad in c for bad in ["GET", "CASH", "PAY", "CB"]):
-                        # Find the percentage mentioned specifically on THIS offer card header
                         pct_m = re.search(r"(\d{1,2})%\s*OFF", card_header, re.I)
                         card_pct = float(pct_m.group(1)) if pct_m else 0.0
                         is_extra = "extra" in card_header.lower() or "add'l" in card_header.lower() or "additional" in card_header.lower()
                         offers_found.append((card_pct, c, is_extra))
 
-            # Fallback if T&C split didn't catch the button line
             if not offers_found:
                 sec_pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", offers_section_text, re.I) if 5 <= float(p) <= 65]
                 max_sec_pct = max(sec_pcts) if sec_pcts else 0.0
@@ -464,17 +458,14 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                                 offers_found.append((max_sec_pct, clean_line, is_extra))
 
         if offers_found:
-            # Sort by highest discount percentage first
             offers_found.sort(key=lambda x: x[0], reverse=True)
             best_pct, coupon_code, is_extra = offers_found[0]
 
             if is_extra and 1 <= best_pct <= 15:
-                # Extra coupon (like '4EXTRA' = 4% extra off the already-discounted price)
                 calculated_price = round(best_price * (1 - best_pct / 100.0))
                 if 40 < calculated_price < best_price:
                     best_price = calculated_price
             elif 10 <= best_pct <= 65 and pdp_mrp:
-                # Flat MRP discount coupon (like 'BUYNOW' = Flat 30% OFF MRP or 'T37JRP' = 37% OFF MRP)
                 calculated_price = round(pdp_mrp * (1 - best_pct / 100.0))
                 if 40 < calculated_price < best_price:
                     best_price = calculated_price
@@ -656,9 +647,10 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 
 def scrape_deals():
-    print("🚀 Starting Complete All-Lines Deal Scraper...", flush=True)
+    print("🚀 Starting Complete All-Lines Deal Scraper (with Restock Tracker)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
+    cache_dirty = False
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -716,13 +708,10 @@ def scrape_deals():
                             try:
                                 card = product_elements.nth(i)
                                 asin = card.get_attribute("data-asin")
-                                if not asin or asin in seen_deals:
+                                if not asin:
                                     continue
 
                                 card_text = card.inner_text()
-                                if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
-                                    continue
-
                                 if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                     continue
 
@@ -737,14 +726,26 @@ def scrape_deals():
                                     else:
                                         title_text = f"Hot Wheels {title_text}"
 
-                                # Keep 65 chars so "Hot Wheels 1:64 Scale Premium Race Team..." never collides across different F1 teams
                                 amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
-                                if amz_title_key in seen_deals:
+
+                                # RESTOCK TRACKER 1 (Amazon OOS): If item went Out of Stock, evict from seen_deals so future restock alerts!
+                                if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
+                                    if asin in seen_deals or amz_title_key in seen_deals:
+                                        seen_deals.discard(asin)
+                                        seen_deals.discard(amz_title_key)
+                                        cache_dirty = True
+                                        print(f"   🔄 [Amazon OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:35]}", flush=True)
                                     continue
 
                                 price_elem = card.locator(".a-price-whole").first
                                 if price_elem.count() == 0:
+                                    # No price means unavailable/buying options only -> evict if previously seen
+                                    if asin in seen_deals or amz_title_key in seen_deals:
+                                        seen_deals.discard(asin)
+                                        seen_deals.discard(amz_title_key)
+                                        cache_dirty = True
                                     continue
+
                                 price_str = re.sub(r"[^\d.]", "", price_elem.inner_text()).rstrip(".")
                                 if not price_str:
                                     continue
@@ -762,7 +763,18 @@ def scrape_deals():
                                 is_valid_mrp, expected_mrp = classify_and_check_mrp(
                                     brand, title_text, price, scraped_mrp=scraped_mrp, store=store
                                 )
+
+                                # RESTOCK TRACKER 2 (Amazon Price Jump): If MRP stock sold out and price jumped to scalper price (> MRP), evict from cache!
                                 if not is_valid_mrp:
+                                    if asin in seen_deals or amz_title_key in seen_deals:
+                                        seen_deals.discard(asin)
+                                        seen_deals.discard(amz_title_key)
+                                        cache_dirty = True
+                                        print(f"   🔄 [Amazon Price > MRP] Cleared from cache for future price drop: {clean_product_title(title_text)[:35]}", flush=True)
+                                    continue
+
+                                # Now check if this in-stock, valid-MRP deal was already alerted
+                                if asin in seen_deals or amz_title_key in seen_deals:
                                     continue
 
                                 # Center the card cleanly in the viewport before screenshotting so it never clips the top
@@ -816,9 +828,6 @@ def scrape_deals():
                             time.sleep(0.25)
 
                             card_text = card.inner_text()
-                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
-                                continue
-
                             if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                 continue
 
@@ -836,16 +845,23 @@ def scrape_deals():
                             else:
                                 deal_key = clean_link.split("?")[0].rstrip("/")
 
-                            if not deal_key or deal_key in seen_deals:
-                                continue
-
                             title_text = link_el.get_attribute("title") or ""
                             if not title_text:
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
                             title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
-                            if title_key in seen_deals:
+
+                            # RESTOCK TRACKER (FirstCry OOS): If item sold out, evict from seen_deals so future restock alerts!
+                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
+                                if deal_key in seen_deals or title_key in seen_deals:
+                                    seen_deals.discard(deal_key)
+                                    seen_deals.discard(title_key)
+                                    cache_dirty = True
+                                    print(f"   🔄 [FirstCry OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:35]}", flush=True)
+                                continue
+
+                            if not deal_key or deal_key in seen_deals or title_key in seen_deals:
                                 continue
 
                             price = 0.0
@@ -930,8 +946,9 @@ def scrape_deals():
 
         browser.close()
 
-    save_seen_deals(seen_deals)
-    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new in-stock deals to cache.", flush=True)
+    if cache_dirty or new_seen_count > 0:
+        save_seen_deals(seen_deals)
+    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new/restocked deals to cache.", flush=True)
 
 
 if __name__ == "__main__":
