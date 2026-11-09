@@ -22,26 +22,20 @@ CACHE_FILE = "seen_deals.json"
 # Official Indian Retail MRP Rules (Strict ceilings across all lines)
 MRP_RULES = {
     "Hot Wheels": {
-        # Basics
-        "mainline": 179,               # Mainlines, Basic Themed Assortments, Mystery Models
-        "5_pack": 899,                 # Standard 5-Packs
-        "color_reveal": 999,           # Color Reveal 2-Pack Drum
-        
-        # Silver-Label Premium
-        "silver_series": 299,          # Silver Series, Pantone, Ultra Hots, Neon Speeders, Vintage Racing, Celebrations, Automotive, Themed Entertainment, Batman Silver
-        "themed_6_pack": 1999,         # Silver Series / Themed 6-Packs (ZAMAC, Streets of Japan, Euro, Japanese)
-        
-        # Gold-Label Premium
-        "premium_single": 549,         # Boulevard, Car Culture, Pop Culture, Premium Fast & Furious, Replica Entertainment
-        "car_culture_2_pack": 1099,    # Car Culture 2-Packs
-        "team_transport": 1499,        # Team Transport
-        "diorama_or_box_set": 2999,    # Premium Display Sets / Collector Diorama Sets (3 Cars + 1 Hauler)
-        "premium_5_pack": 3999,        # Fast & Furious / Car Culture 5-Car Collector Bundles
-        
-        # Other Lines
-        "monster_truck": 399,          # 1:64 Monster Trucks
-        "f1_premium": 799,             # Formula 1 Premium Singles (Official MRP: ₹799)
-        "f1_2_pack": 1599,             # Formula 1 Premium 2-Packs
+        "mainline": 179,
+        "5_pack": 899,
+        "super_rig": 999,
+        "color_reveal": 999,
+        "silver_series": 299,
+        "themed_6_pack": 1999,
+        "premium_single": 549,
+        "car_culture_2_pack": 1099,
+        "team_transport": 1499,
+        "diorama_or_box_set": 2999,
+        "premium_5_pack": 3999,
+        "monster_truck": 399,
+        "f1_premium": 799,
+        "f1_2_pack": 1599,
     },
     "Matchbox": {
         "mainline": 179,
@@ -64,23 +58,32 @@ MRP_RULES = {
 }
 
 TARGET_URLS = [
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&s=date-desc-rank"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Formula+1"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Race+Team+Premium"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Silver+Series"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Premium"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Pop+Culture"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Car+Culture"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Forza+Gran+Turismo"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Batmobile+Batman"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Matchbox+cars"},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Majorette+cars"},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels", "pages": 3},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&s=date-desc-rank", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A12000-56000", "pages": 3},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A50000-155000", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+5+Pack", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Formula+1", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Race+Team+Premium", "pages": 1},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Silver+Series", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Premium", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Pop+Culture", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Car+Culture", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+2+Pack+Team+Transport", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Forza+Gran+Turismo", "pages": 1},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Batmobile+Batman", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Matchbox+cars", "pages": 2},
+    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Majorette+cars", "pages": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels"},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack"},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium"},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula"},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox"},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette"}
 ]
+
 
 def load_seen_deals():
     if os.path.exists(CACHE_FILE):
@@ -91,13 +94,15 @@ def load_seen_deals():
             pass
     return set()
 
+
 def save_seen_deals(seen_set):
     try:
-        trimmed_list = list(seen_set)[-600:]
+        trimmed_list = list(seen_set)[-800:]
         with open(CACHE_FILE, "w") as f:
             json.dump(trimmed_list, f)
     except Exception as e:
         print(f"⚠️ Failed to save cache: {e}", flush=True)
+
 
 def determine_brand(title):
     t = title.lower()
@@ -108,39 +113,44 @@ def determine_brand(title):
     else:
         return "Hot Wheels"
 
+
 def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
-    # Clean trademark symbols, registered marks, and special dashes for robust matching
-    t = re.sub(r'[®™©–—/]', ' ', title.lower())
+    t = re.sub(r'[®™©–—/|]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
+    # STRICT ACCESSORY & NON-DIECAST FILTER: Block stands, cases, mats, tracks, keychains, etc.
+    if re.search(r'\b(stand|stands|protector|protectors|acrylic|keychain|magnet|organizer|storage|shelf|rack|mat)\b', t, re.I):
+        return False, None
+
     if any(skip in t for skip in [
-        "case of", "collector case", "blind box", "track", "playset", "play set", "petrol station",
-        "garage", "carry case", "launcher", "protector", "lapel pin", "magnet", "rotiform",
-        "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18", "red line club", "rlc", "elite 64",
-        "conventions", "skate", "fingerboard", "monster jam", "rc ", "remote control"
+        "display stand", "stand for", "cars not included", "car not included", "acrylic case",
+        "storage box", "wall mount", "case of", "collector case", "blind box", "track",
+        "playset", "play set", "petrol station", "garage", "carry case", "launcher",
+        "lapel pin", "rotiform", "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18",
+        "red line club", "rlc", "elite 64", "conventions", "skate", "fingerboard",
+        "monster jam", "rc ", "remote control", "puzzle", "book", "sticker", "t-shirt", "bag"
     ]):
         return False, None
 
+    is_amazon = "amazon" in store.lower()
+
+    # FIRSTCRY TRUST RULE: Always use the MRP scraped from the FirstCry card/page when available!
+    if not is_amazon and scraped_mrp and scraped_mrp >= 150:
+        return price <= scraped_mrp, round(scraped_mrp)
+
     # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (e.g., 233/250, 45/250, 9/10) ---
-    # Any card with /250 or /10 numbering (without Silver Series keywords) is strictly a ₹179 Mainline
     if brand == "Hot Wheels" and re.search(r'\b(250|[1-9][0-9]?)\s*/\s*(250|10)\b', title):
         if not any(s in t for s in ["silver series", "silver label", "pantone", "ultra hots", "neon speeders"]):
             target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
             return price <= target_mrp, target_mrp
 
-    # STRICT AMAZON SCALPER PROTECTION:
-    # Ignore fake scalper MRPs (like 999, 1299, 1499).
-    # Only allow scraped_mrp on Amazon if it is an exact official Mattel Premium/Silver tier (299, 549, 799)
-    # AND the car matches a known Pop Culture / Silver / F1 franchise!
-    is_amazon = "amazon" in store.lower()
-
     hw_5pack_themes = [
         "hw torque", "motor show", "street beasts", "retro racers", "nightburnerz",
         "x-raycers", "exotics", "hot trucks", "mud studs", "hw flames", "hw city",
-        "hw track", "action pack", "stunt", "car meet", "mopar", "mustang", "corvette", "nissan"
+        "hw track", "action pack", "stunt", "car meet", "mopar", "mustang", "corvette",
+        "nissan", "ferrari 5", "f1 5", "formula 1 5", "fast & furious 5", "batman 5", "batman themed"
     ]
 
-    # Complete Formula 1 Premium Dictionary (MRP: ₹799)
     f1_keywords = [
         "formula 1", "formula one", "f1", "race team",
         "atlassian", "williams racing", "williams jkd", "bwt alpine", "alpine formula",
@@ -155,7 +165,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "hulkenberg", "bortoleto", "ocon", "bearman"
     ]
 
-    # Pop Culture & Replica Entertainment Franchises (Often omit 'Pop Culture' or 'Premium' in Amazon titles!)
     pop_culture_franchises = [
         "forza", "gran turismo", "cyberpunk", "back to the future", "time machine",
         "ghostbusters", "ecto-1", "teenage mutant ninja turtles", "tmnt", "party wagon",
@@ -172,39 +181,49 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
 
     # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
     if brand == "Hot Wheels":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 299, 399, 549, 699, 799, 899, 999, 1099, 1499, 1599, 1999, 2999, 3999, 4000]:
-            target_mrp = 3999 if round(scraped_mrp) == 4000 else round(scraped_mrp)
-            return price <= target_mrp, target_mrp
+        # Block fake Amazon "Complete Set of 5" Silver Series single-car traps (e.g. Surfs Up @ ₹499)
+        if "complete set" in t and any(s in t for s in ["silver series", "surfs up", "surf s up"]):
+            return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
 
-        if any(k in t for k in ["fast & furious", "fast and furious", "car culture", "premium bundle", "movie franchise"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
+        # Super Rigs / Heavy Haulers -> ₹999
+        if any(k in t for k in ["super rig", "super rigs", "heavy doody", "hauling rig", "truck and car"]):
+            return price <= MRP_RULES["Hot Wheels"]["super_rig"], MRP_RULES["Hot Wheels"]["super_rig"]
+
+        # Gold-Label Premium 5-Pack Collector Bundles (F&F / Car Culture) -> ₹3,999
+        if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
             return price <= MRP_RULES["Hot Wheels"]["premium_5_pack"], MRP_RULES["Hot Wheels"]["premium_5_pack"]
 
+        # Basics: Standard & Character 5-Packs -> ₹899
+        if (any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars", "batman themed"]) or (
+            any(theme in t for theme in hw_5pack_themes) and 400 <= price <= 899
+        )) and "silver" not in t and "car culture" not in t and "real riders" not in t:
+            return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
+
+        # Silver-Label Themed 6-Packs -> ₹1,999
         if any(k in t for k in ["6-pack", "6 pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
             return price <= MRP_RULES["Hot Wheels"]["themed_6_pack"], MRP_RULES["Hot Wheels"]["themed_6_pack"]
 
+        # Formula 1 Premium 2-Packs -> ₹1,599
         if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
             return price <= MRP_RULES["Hot Wheels"]["f1_2_pack"], MRP_RULES["Hot Wheels"]["f1_2_pack"]
 
+        # Gold-Label Car Culture 2-Packs -> ₹1,099
         if any(k in t for k in ["2-pack", "2 pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
             return price <= MRP_RULES["Hot Wheels"]["car_culture_2_pack"], MRP_RULES["Hot Wheels"]["car_culture_2_pack"]
 
+        # Basics: Color Reveal 2-Pack -> ₹999
         if "color reveal" in t or "colour reveal" in t:
             return price <= MRP_RULES["Hot Wheels"]["color_reveal"], MRP_RULES["Hot Wheels"]["color_reveal"]
 
+        # Gold-Label Team Transport -> ₹1,499
         if any(k in t for k in ["team transport", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on", "transport hauler"]):
             return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
 
+        # Gold-Label Premium Display Sets / Dioramas -> ₹2,999
         if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
             return price <= MRP_RULES["Hot Wheels"]["diorama_or_box_set"], MRP_RULES["Hot Wheels"]["diorama_or_box_set"]
 
-        if (any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5"]) or (
-            any(theme in t for theme in hw_5pack_themes) and 400 <= price <= 899
-        )) and "silver" not in t and "premium" not in t:
-            return price <= MRP_RULES["Hot Wheels"]["5_pack"], MRP_RULES["Hot Wheels"]["5_pack"]
-
     elif brand == "Matchbox":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 299, 399, 599, 649, 899, 999, 1599]:
-            return price <= scraped_mrp, round(scraped_mrp)
         if any(k in t for k in ["8 pack", "8-pack", "pack of 8", "9 pack", "9-pack", "pack of 9"]):
             return price <= MRP_RULES["Matchbox"]["8_or_9_pack"], MRP_RULES["Matchbox"]["8_or_9_pack"]
         if any(k in t for k in ["5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "set of 5"]):
@@ -215,23 +234,21 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             return price <= MRP_RULES["Matchbox"]["working_rigs"], MRP_RULES["Matchbox"]["working_rigs"]
 
     elif brand == "Majorette":
-        if not is_amazon and scraped_mrp and round(scraped_mrp) in [179, 199, 399, 599, 699, 799, 899, 1199, 1699]:
-            return price <= scraped_mrp, round(scraped_mrp)
         if any(k in t for k in ["5 piece", "5-piece", "5 pack", "5-pack", "pack of 5", "5 pcs", "gift pack", "gift set", "car set", "set of 5"]):
             if any(ed in t for ed in ["porsche", "black edition", "vintage", "jdm", "racing", "mercedes", "lamborghini", "deluxe", "premium", "limited", "color changer"]):
                 return price <= MRP_RULES["Majorette"]["edition_5_pack"], MRP_RULES["Majorette"]["edition_5_pack"]
             else:
                 return price <= MRP_RULES["Majorette"]["street_5_pack"], MRP_RULES["Majorette"]["street_5_pack"]
-        if "trailer" in t and any(k in t for k in ["2 die", "2 cars", "wagon"]):
+        if any(k in t for k in ["trailer", "isuzu", "transporter", "hauler", "truck"]):
             return price <= MRP_RULES["Majorette"]["trailer_set"], MRP_RULES["Majorette"]["trailer_set"]
 
     # --- 2. GENERAL MULTI-PACK MULTIPLIER LOOP ---
     for num_cars in range(2, 11):
-        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}pc" in t or 
-            f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or 
-            f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
+        if (f"pack of {num_cars}" in t or f"{num_cars} pack" in t or f"{num_cars}-pack" in t or f"{num_cars}pc" in t or
+                f"{num_cars} pcs" in t or f"set of {num_cars}" in t or f"set {num_cars}" in t or
+                f"{num_cars} cars" in t or f"{num_cars}-car" in t or f"{num_cars} piece" in t or f"{num_cars}-piece" in t):
             if brand == "Hot Wheels":
-                if any(k in t for k in f1_keywords):
+                if any(k in t for k in f1_keywords) and "premium" in t:
                     per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
                 elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie"]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
@@ -257,18 +274,15 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
 
     # --- 3. SINGLE CARDS CLASSIFICATION (STRICT LINE MATCHING) ---
     if brand == "Hot Wheels":
-        # 1:64 Monster Trucks -> ₹399
         if "monster truck" in t:
             return price <= MRP_RULES["Hot Wheels"]["monster_truck"], MRP_RULES["Hot Wheels"]["monster_truck"]
 
-        # Formula 1 Premium Singles -> ₹799
         elif any(k in t for k in f1_keywords) and (
             any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
             or (scraped_mrp and round(scraped_mrp) == 799)
         ):
             return price <= MRP_RULES["Hot Wheels"]["f1_premium"], MRP_RULES["Hot Wheels"]["f1_premium"]
 
-        # Gold-Label Premium Singles -> ₹549 (Boulevard, Car Culture, Pop Culture, Replica Entertainment)
         elif any(k in t for k in [
             "boulevard", "car culture", "pop culture", "real riders", "metal/metal", "metal metal",
             "replica from popular movie", "premium toy car, truck or van", "modern classics",
@@ -278,16 +292,12 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         ]) or ("premium" in t and "silver" not in t):
             return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
 
-        # Pop Culture / Entertainment Franchises where Amazon omits 'Pop Culture' or 'Premium' from the title:
-        # If it matches a known Pop Culture franchise AND Amazon's printed M.R.P. is ₹549, it's a ₹549 Pop Culture card!
-        # If Amazon's printed M.R.P. is ₹299 (or not 549), it's a ₹299 Silver Series / Themed Entertainment card!
         elif any(f in t for f in pop_culture_franchises):
             if scraped_mrp and round(scraped_mrp) == 549:
                 return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
             else:
                 return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
 
-        # Silver-Label Premium Singles -> ₹299
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
             "vintage racing", "celebrations", "themed entertainment", "automotive",
@@ -296,12 +306,11 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         ]):
             return price <= MRP_RULES["Hot Wheels"]["silver_series"], MRP_RULES["Hot Wheels"]["silver_series"]
 
-        # Basics / Mainlines / Mystery Models -> ₹179
         else:
             return price <= MRP_RULES["Hot Wheels"]["mainline"], MRP_RULES["Hot Wheels"]["mainline"]
 
     elif brand == "Matchbox":
-        if "collectors" in t or "true grip" in t:
+        if "collectors" in t or "true grip" in t or "sky busters" in t:
             return price <= MRP_RULES["Matchbox"]["collectors"], MRP_RULES["Matchbox"]["collectors"]
         elif "moving parts" in t:
             return price <= MRP_RULES["Matchbox"]["moving_parts"], MRP_RULES["Matchbox"]["moving_parts"]
@@ -312,7 +321,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     elif brand == "Majorette":
         if any(k in t for k in ["tune-ups", "tune ups", "tune up"]):
             expected = MRP_RULES["Majorette"]["tune_ups"]
-        elif any(k in t for k in ["deluxe", "collector box", "monster rockerz", "city bus", "city trailer", "aeroplane", "airplane"]):
+        elif any(k in t for k in ["deluxe", "collector box", "monster rockerz", "city bus", "city trailer", "aeroplane", "airplane", "airport", "aircraft", "boeing", "airbus", "a350", "a 350"]):
             expected = MRP_RULES["Majorette"]["deluxe"]
         elif any(k in t for k in [
             "premium", "racing", "vintage", "jdm", "castheads", "cast heads", "color changer",
@@ -326,46 +335,81 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
 
     return False, None
 
+
 def extract_amazon_coupon(card_text):
     code_match = re.search(r"(?:with\s+coupon|use\s+code|with\s+code|promo\s+code)\s*:?\s*([A-Z0-9]{5,12})\b", card_text, re.I)
     if code_match and code_match.group(1).upper() not in ["COUPON", "APPLIED", "SAVINGS", "DETAILS"]:
         return code_match.group(1).upper()
-    
+
     clip_match = re.search(r"(Save\s+(?:₹\s*\d+|\d+%)\s+with\s+coupon)", card_text, re.I)
     if clip_match:
         return f"{clip_match.group(1)} (Clip on page)"
     return None
 
+
 def extract_amazon_delivery(card_text):
-    # 1. Check for paid delivery charges (e.g., "₹40 delivery", "+ ₹80 delivery", "₹99 shipping")
     paid_match = re.search(r"(?:\+\s*)?₹\s*([1-9][0-9]{0,3}(?:\.[0-9]{1,2})?)\s*(?:delivery|shipping)", card_text, re.I)
     if paid_match:
         amt = float(paid_match.group(1))
         return f"₹{amt:.0f}"
 
-    # 2. Check for FREE delivery
     if re.search(r"\bFREE\s+delivery\b", card_text, re.I):
         return "FREE"
 
     return None
 
+
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
     pdp_page = context.new_page()
     coupon_code = None
     best_price = fallback_price
+    pdp_mrp = expected_mrp
     screenshot_path = None
 
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
         time.sleep(2.0)
-
-        # Scroll down so lazy-loaded 'Offers and Discounts' block renders
         pdp_page.evaluate("window.scrollBy(0, 650)")
         time.sleep(1.2)
 
         pdp_text = pdp_page.locator("body").inner_text()
-        pdp_html = pdp_page.content()
 
+        # --- LAYER 1: Extract Exact MRP Printed on FirstCry Product Page ---
+        scraped_pdp_mrp = None
+
+        # 1A. Check explicit DOM elements for MRP on FirstCry PDP
+        mrp_el = pdp_page.locator(".pdp-mrp, .mrp-price, .prod-mrp, del, strike, [class*='mrp']").first
+        if mrp_el.count() > 0:
+            mrp_el_txt = mrp_el.inner_text() or ""
+            m_dom = re.search(r"([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", mrp_el_txt.replace(",", ""))
+            if m_dom:
+                scraped_pdp_mrp = round(float(m_dom.group(1)))
+
+        # 1B. Check text patterns like "MRP: ₹599", "MRP ₹899", or "₹443.24 MRP: ₹599 26% OFF"
+        if not scraped_pdp_mrp:
+            pdp_mrp_match = re.search(
+                r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)|₹?\s*[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s+MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4})",
+                pdp_text,
+                re.I
+            )
+            if pdp_mrp_match:
+                val = pdp_mrp_match.group(1) or pdp_mrp_match.group(2)
+                scraped_pdp_mrp = round(float(val))
+
+        if scraped_pdp_mrp and scraped_pdp_mrp >= 150:
+            pdp_mrp = scraped_pdp_mrp
+
+        # Also check if Club Price is listed on the PDP (e.g., "Club Price: ₹431.26")
+        club_p_match = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
+        if club_p_match:
+            cp_val = float(club_p_match.group(1))
+            # Handle FirstCry superscript paise where "43126" means "431.26" if MRP is < 2000
+            if cp_val > pdp_mrp and cp_val > 10000:
+                cp_val = round(cp_val / 100.0)
+            if 40 < cp_val < best_price:
+                best_price = round(cp_val)
+
+        # --- LAYER 2: Extract Product Discount Coupon from 'Offers and Discounts' ---
         ignore_words = {
             "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE",
             "CHECKOUT", "SAVINGS", "DISCOUNT", "DISCOUNTS", "ELIGIBLE", "PRODUCTS",
@@ -373,10 +417,11 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             "VALID", "TERMS", "CONDITIONS", "CLICK", "HERE", "SELECT", "COLOR",
             "COLOUR", "RETURN", "CHECK", "MEMB", "MEMBER", "MEMBERS", "FEDERAL",
             "CREDIT", "DEBIT", "CARDS", "INSTANT", "BANK", "FLAT", "EXTRA", "CLUB",
-            "SHORTLIST", "ADDTOCART", "SHARE", "GIFT", "WRAP"
+            "SHORTLIST", "ADDTOCART", "SHARE", "GIFT", "WRAP", "BESTSELLER",
+            "GET50CT", "CASHBACK", "PAYTM", "MOBIKWIK", "AMAZON"
         }
 
-        # 1. PRIMARY TARGET: Isolate the exact 'Offers and Discounts' section (above 'Bank Offers')
+        offers_found = []
         offers_block_match = re.search(
             r"Offers\s+and\s+Discounts(.*?)(?:Bank\s+Offers|Product\s+Description|Specifications|You\s+May\s+Also\s+Like|$)",
             pdp_text,
@@ -385,79 +430,55 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         offers_section_text = offers_block_match.group(1) if offers_block_match else ""
 
         if offers_section_text:
-            # First check if a code sits right after 'T&C' or 'T&C >' (exact layout of FirstCry's blue copy button!)
-            tc_code_match = re.search(r"T\s*&\s*C\s*>?\s*\n+\s*\b([A-Z0-9]{5,12})\b", offers_section_text)
-            if tc_code_match and tc_code_match.group(1).strip() not in ignore_words:
-                coupon_code = tc_code_match.group(1).strip()
+            # Split the Offers and Discounts section into individual offer cards separated by 'T&C'
+            offer_cards = re.split(r"T\s*&\s*C\s*>?", offers_section_text)
+            for idx in range(len(offer_cards) - 1):
+                card_header = offer_cards[idx]
+                card_footer = offer_cards[idx + 1]
 
-            # Otherwise scan each line inside 'Offers and Discounts' for a standalone uppercase promo code button
-            if not coupon_code:
+                # Skip cashback / wallet offer slides completely
+                if any(cb_word in card_header.lower() for cb_word in ["cashback", "club cash", "wallet", "paytm"]):
+                    continue
+
+                # Extract the code sitting right after 'T&C >' in card_footer
+                code_m = re.search(r"^\s*\n*\s*\b([A-Z0-9]{5,12})\b", card_footer)
+                if code_m:
+                    c = code_m.group(1).strip().upper()
+                    if c not in ignore_words and not any(bad in c for bad in ["GET", "CASH", "PAY", "CB"]):
+                        # Find the percentage mentioned specifically on THIS offer card header
+                        pct_m = re.search(r"(\d{1,2})%\s*OFF", card_header, re.I)
+                        card_pct = float(pct_m.group(1)) if pct_m else 0.0
+                        is_extra = "extra" in card_header.lower() or "add'l" in card_header.lower() or "additional" in card_header.lower()
+                        offers_found.append((card_pct, c, is_extra))
+
+            # Fallback if T&C split didn't catch the button line
+            if not offers_found:
+                sec_pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", offers_section_text, re.I) if 5 <= float(p) <= 65]
+                max_sec_pct = max(sec_pcts) if sec_pcts else 0.0
                 for line in offers_section_text.splitlines():
                     clean_line = re.sub(r"[^A-Z0-9]", "", line.strip())
                     if 5 <= len(clean_line) <= 12 and clean_line == line.strip().upper().replace(" ", "") and clean_line not in ignore_words:
-                        if any(c.isalpha() for c in clean_line):
-                            coupon_code = clean_line
-                            break
+                        if not any(bad in clean_line for bad in ["GET", "CASH", "PAY", "CB"]):
+                            if any(ch.isalpha() for ch in clean_line):
+                                is_extra = "extra" in clean_line.lower()
+                                offers_found.append((max_sec_pct, clean_line, is_extra))
 
-            # Or look for any ALL-CAPS token inside Offers and Discounts not in ignore_words
-            if not coupon_code:
-                for tok in re.findall(r"\b([A-Z0-9]{5,12})\b", offers_section_text):
-                    if tok not in ignore_words and any(c.isalpha() for c in tok):
-                        coupon_code = tok
-                        break
+        if offers_found:
+            # Sort by highest discount percentage first
+            offers_found.sort(key=lambda x: x[0], reverse=True)
+            best_pct, coupon_code, is_extra = offers_found[0]
 
-        # 2. Check explicit JS copy functions or data attributes in FirstCry's HTML
-        if not coupon_code:
-            html_code_matches = re.findall(
-                r"(?:copyCode|copyToClipboard|data-coupon|data-code|cpn_code|promo_code)[^>]*?['\"=>\s]([A-Z0-9]{5,12})\b",
-                pdp_html,
-                re.I
-            )
-            for m in html_code_matches:
-                cand = m.strip().upper()
-                if cand not in ignore_words and len(cand) >= 5 and any(c.isalpha() for c in cand):
-                    coupon_code = cand
-                    break
+            if is_extra and 1 <= best_pct <= 15:
+                # Extra coupon (like '4EXTRA' = 4% extra off the already-discounted price)
+                calculated_price = round(best_price * (1 - best_pct / 100.0))
+                if 40 < calculated_price < best_price:
+                    best_price = calculated_price
+            elif 10 <= best_pct <= 65 and pdp_mrp:
+                # Flat MRP discount coupon (like 'BUYNOW' = Flat 30% OFF MRP or 'T37JRP' = 37% OFF MRP)
+                calculated_price = round(pdp_mrp * (1 - best_pct / 100.0))
+                if 40 < calculated_price < best_price:
+                    best_price = calculated_price
 
-        # 3. Check general visible text patterns ('Use Code: T37JRP', 'Code: BUYNOW')
-        if not coupon_code:
-            code_patterns = [
-                r"(?:Use\s+Code|Coupon\s+Code|Promo\s+Code|Use\s+Promo|Apply\s+Code|Code)\s*[:\-–]?\s*\b([A-Z0-9]{5,12})\b",
-                r"\b([A-Z0-9]{5,12})\b\s*(?:to\s+avail|for\s+extra|off\s+on|at\s+checkout|applicable)"
-            ]
-            for pat in code_patterns:
-                matches = re.findall(pat, pdp_text, flags=re.I | re.S)
-                for m in matches:
-                    candidate = m.strip().upper()
-                    if candidate not in ignore_words and any(c.isalpha() for c in candidate):
-                        coupon_code = candidate
-                        break
-                if coupon_code:
-                    break
-
-        # Calculate best post-coupon price from the percentage inside 'Offers and Discounts' (e.g. 'FLAT 30% OFF*')
-        if coupon_code:
-            search_area = offers_section_text if offers_section_text else pdp_text
-            pct_match = re.search(r"(?:FLAT|EXTRA|SAVE)?\s*(\d{1,2})%\s*OFF", search_area, re.I)
-            if pct_match:
-                pct = float(pct_match.group(1))
-                base_for_calc = expected_mrp if expected_mrp else fallback_price
-                if 10 <= pct <= 70 and base_for_calc:
-                    calculated_price = round(base_for_calc * (1 - pct / 100.0))
-                    if calculated_price < best_price:
-                        best_price = calculated_price
-
-        best_p_match = re.search(
-            r"(?:Best\s+Price|Get\s+it\s+(?:for|at)|After\s+Coupon|Club\s+Price)\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)",
-            pdp_text,
-            re.I
-        )
-        if best_p_match:
-            candidate_p = float(best_p_match.group(1))
-            if 40 < candidate_p < best_price:
-                best_price = candidate_p
-
-        # Scroll back up to capture the clean main product card screenshot
         pdp_page.evaluate("window.scrollTo(0, 0)")
         time.sleep(0.3)
 
@@ -475,7 +496,8 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     finally:
         pdp_page.close()
 
-    return coupon_code, best_price, screenshot_path
+    return coupon_code, best_price, pdp_mrp, screenshot_path
+
 
 def normalize_and_clean_url(raw_url, domain_prefix=""):
     if not raw_url:
@@ -498,11 +520,11 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
         return url.split("?")[0]
     return url
 
+
 def convert_to_affiliate_link(raw_url):
     if not raw_url or not raw_url.startswith("http"):
         return raw_url
-    
-    # Direct Amazon affiliate link (bypasses is.gd connection resets)
+
     if "amazon.in" in raw_url:
         asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", raw_url)
         if asin_match:
@@ -513,7 +535,6 @@ def convert_to_affiliate_link(raw_url):
             return base_amzn
         return raw_url
 
-    # Cuelinks conversion for FirstCry
     if CUELINKS_API_KEY:
         v3_endpoint = "https://developers.cuelinks.com/pub_api/v3/links/convert"
         v3_headers = {
@@ -534,6 +555,7 @@ def convert_to_affiliate_link(raw_url):
 
     return raw_url
 
+
 def clean_product_title(raw_title):
     junk_patterns = [
         r"Added to Cart", r"Shortlisted", r"Already Viewed", r"Out of Stock", r"Notify Me",
@@ -549,6 +571,7 @@ def clean_product_title(raw_title):
     )[0]
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -.,|")
     return cleaned
+
 
 def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None, delivery=None):
     clean_title = html.escape(clean_product_title(title))
@@ -579,7 +602,6 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
     formatted_link = f'<a href="{final_link}">{link_display_text}</a>'
 
-    # Show inline shipping note if paid delivery applies on Amazon (e.g. "+ ₹40 Ship")
     inline_ship = ""
     if delivery and delivery.upper() != "FREE":
         inline_ship = f" (+ {html.escape(str(delivery))} Ship)"
@@ -632,11 +654,12 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
+
 def scrape_deals():
     print("🚀 Starting Complete All-Lines Deal Scraper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -647,7 +670,7 @@ def scrape_deals():
                 "--disable-dev-shm-usage"
             ]
         )
-        
+
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1366, "height": 768},
@@ -657,110 +680,128 @@ def scrape_deals():
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
+        try:
+            page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
+            time.sleep(1.5)
+        except Exception:
+            pass
+
         for target in TARGET_URLS:
             store = target["store"]
             url = target["url"]
+            max_pages = target.get("pages", 1)
             print(f"\n-> Scanning {store} ({url})...", flush=True)
 
             try:
                 if "amazon" in store.lower():
-                    page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
-                    time.sleep(2)
-                    page.goto(url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
-                    time.sleep(3)
+                    for amz_page in range(1, max_pages + 1):
+                        paged_url = f"{url}&page={amz_page}" if "?" in url else f"{url}?page={amz_page}"
+                        if max_pages > 1:
+                            print(f"   -> Amazon Page {amz_page}/{max_pages}: {paged_url}", flush=True)
 
-                    product_elements = page.locator("div[data-component-type='s-search-result']")
-                    count = product_elements.count()
-                    print(f"   Found {count} product cards on Amazon.", flush=True)
+                        page.goto(paged_url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
+                        time.sleep(2.5)
 
-                    for i in range(count):
-                        try:
-                            card = product_elements.nth(i)
-                            asin = card.get_attribute("data-asin")
-                            if not asin or asin in seen_deals:
+                        for _ in range(2):
+                            page.evaluate("window.scrollBy(0, 1800)")
+                            time.sleep(0.8)
+
+                        product_elements = page.locator("div[data-component-type='s-search-result']")
+                        count = product_elements.count()
+                        print(f"      Found {count} product cards on Amazon (Page {amz_page}).", flush=True)
+                        if count == 0:
+                            break
+
+                        for i in range(count):
+                            try:
+                                card = product_elements.nth(i)
+                                asin = card.get_attribute("data-asin")
+                                if not asin or asin in seen_deals:
+                                    continue
+
+                                card_text = card.inner_text()
+                                if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
+                                    continue
+
+                                if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
+                                    continue
+
+                                h2_el = card.locator("h2").first
+                                title_text = h2_el.inner_text().strip() if h2_el.count() > 0 else card_text.split("\n")[0]
+
+                                if not any(b in title_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
+                                    if "matchbox" in card_text.lower():
+                                        title_text = f"Matchbox {title_text}"
+                                    elif "majorette" in card_text.lower():
+                                        title_text = f"Majorette {title_text}"
+                                    else:
+                                        title_text = f"Hot Wheels {title_text}"
+
+                                # Keep 65 chars so "Hot Wheels 1:64 Scale Premium Race Team..." never collides across different F1 teams
+                                amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
+                                if amz_title_key in seen_deals:
+                                    continue
+
+                                price_elem = card.locator(".a-price-whole").first
+                                if price_elem.count() == 0:
+                                    continue
+                                price_str = re.sub(r"[^\d.]", "", price_elem.inner_text()).rstrip(".")
+                                if not price_str:
+                                    continue
+                                price = float(price_str)
+
+                                scraped_mrp = None
+                                mrp_match = re.search(r"M\.?R\.?P\.?\s*:?\s*₹?\s*([1-9][0-9,]{1,5})", card_text, re.I)
+                                if mrp_match:
+                                    try:
+                                        scraped_mrp = float(mrp_match.group(1).replace(",", ""))
+                                    except Exception:
+                                        scraped_mrp = None
+
+                                brand = determine_brand(title_text)
+                                is_valid_mrp, expected_mrp = classify_and_check_mrp(
+                                    brand, title_text, price, scraped_mrp=scraped_mrp, store=store
+                                )
+                                if not is_valid_mrp:
+                                    continue
+
+                                # Center the card cleanly in the viewport before screenshotting so it never clips the top
+                                card.evaluate("el => el.scrollIntoView({block: 'center', inline: 'nearest'})")
+                                time.sleep(0.5)
+
+                                coupon = extract_amazon_coupon(card_text)
+                                delivery = extract_amazon_delivery(card_text)
+
+                                inner_box = card.locator(".s-card-container").first
+                                target_shot = inner_box if inner_box.count() > 0 else card
+
+                                img_path = f"temp_deal_{asin}.png"
+                                target_shot.screenshot(path=img_path)
+
+                                seen_deals.add(asin)
+                                seen_deals.add(amz_title_key)
+                                save_seen_deals(seen_deals)
+
+                                clean_link = f"https://www.amazon.in/dp/{asin}"
+                                send_telegram_deal(
+                                    store, title_text, price, expected_mrp, clean_link,
+                                    image_path=img_path, coupon=coupon, delivery=delivery
+                                )
+
+                                if os.path.exists(img_path):
+                                    os.remove(img_path)
+
+                                new_seen_count += 1
+                                time.sleep(1)
+                            except Exception:
                                 continue
-
-                            card.scroll_into_view_if_needed()
-                            time.sleep(0.3)
-
-                            card_text = card.inner_text()
-                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
-                                continue
-
-                            if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
-                                continue
-
-                            h2_el = card.locator("h2").first
-                            title_text = h2_el.inner_text().strip() if h2_el.count() > 0 else card_text.split("\n")[0]
-
-                            if not any(b in title_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
-                                if "matchbox" in card_text.lower():
-                                    title_text = f"Matchbox {title_text}"
-                                elif "majorette" in card_text.lower():
-                                    title_text = f"Majorette {title_text}"
-                                else:
-                                    title_text = f"Hot Wheels {title_text}"
-
-                            amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
-                            if amz_title_key in seen_deals:
-                                continue
-
-                            price_elem = card.locator(".a-price-whole").first
-                            if price_elem.count() == 0:
-                                continue
-                            price_str = re.sub(r"[^\d.]", "", price_elem.inner_text()).rstrip(".")
-                            if not price_str:
-                                continue
-                            price = float(price_str)
-
-                            # Extract Amazon's printed M.R.P. ONLY to disambiguate ₹549 Pop Culture vs ₹299 Silver Series franchises
-                            scraped_mrp = None
-                            mrp_match = re.search(r"M\.?R\.?P\.?\s*:?\s*₹?\s*([1-9][0-9,]{1,5})", card_text, re.I)
-                            if mrp_match:
-                                try:
-                                    scraped_mrp = float(mrp_match.group(1).replace(",", ""))
-                                except Exception:
-                                    scraped_mrp = None
-
-                            brand = determine_brand(title_text)
-                            is_valid_mrp, expected_mrp = classify_and_check_mrp(
-                                brand, title_text, price, scraped_mrp=scraped_mrp, store=store
-                            )
-                            if not is_valid_mrp:
-                                continue
-
-                            coupon = extract_amazon_coupon(card_text)
-                            delivery = extract_amazon_delivery(card_text)
-
-                            inner_box = card.locator(".s-card-container").first
-                            target_shot = inner_box if inner_box.count() > 0 else card
-
-                            img_path = f"temp_deal_{asin}.png"
-                            target_shot.screenshot(path=img_path)
-
-                            seen_deals.add(asin)
-                            seen_deals.add(amz_title_key)
-                            save_seen_deals(seen_deals)
-
-                            clean_link = f"https://www.amazon.in/dp/{asin}"
-                            send_telegram_deal(
-                                store, title_text, price, expected_mrp, clean_link,
-                                image_path=img_path, coupon=coupon, delivery=delivery
-                            )
-
-                            if os.path.exists(img_path):
-                                os.remove(img_path)
-
-                            new_seen_count += 1
-                            time.sleep(1)
-                        except Exception:
-                            continue
 
                 elif "firstcry" in store.lower():
                     page.goto(url, timeout=45000, wait_until="domcontentloaded")
-                    time.sleep(4)
-                    page.evaluate("window.scrollBy(0, 1000)")
-                    time.sleep(2)
+                    time.sleep(3)
+                    for _ in range(4):
+                        page.evaluate("window.scrollBy(0, 1400)")
+                        time.sleep(1.2)
 
                     product_elements = page.locator("div.list_block")
                     if product_elements.count() == 0:
@@ -772,8 +813,8 @@ def scrape_deals():
                         try:
                             card = product_elements.nth(i)
                             card.scroll_into_view_if_needed()
-                            time.sleep(0.3)
-                            
+                            time.sleep(0.25)
+
                             card_text = card.inner_text()
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
                                 continue
@@ -789,7 +830,6 @@ def scrape_deals():
                             raw_href = link_el.get_attribute("href")
                             clean_link = normalize_and_clean_url(raw_href, "https://www.firstcry.com")
 
-                            # Extract FirstCry's unique numeric Product ID so duplicate cards never fire twice
                             fc_id_match = re.search(r"/(\d{5,12})/product-detail", clean_link)
                             if fc_id_match:
                                 deal_key = f"fc_{fc_id_match.group(1)}"
@@ -804,25 +844,51 @@ def scrape_deals():
                                 title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
                                 title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
-                            # Secondary lock: deduplicate by first 28 chars of cleaned title
-                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:28]}"
+                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
                             if title_key in seen_deals:
                                 continue
 
                             price = 0.0
                             scraped_mrp = None
-                            pm_discount = re.search(r"₹?\s*\b([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*\(\d+%\s*Off\)", card_text, re.I)
+
+                            # 1. Check direct DOM selectors on FirstCry search card for Selling Price & Strikethrough MRP
+                            sp_el = card.locator(".r1, .rupee, .club_price, .sp_amt").first
+                            mrp_card_el = card.locator(".r2, del, strike, .mrp_amt").first
+                            if mrp_card_el.count() > 0:
+                                m_txt = mrp_card_el.inner_text() or ""
+                                m_val = re.search(r"([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", m_txt.replace(",", ""))
+                                if m_val:
+                                    scraped_mrp = float(m_val.group(1))
+
+                            # 2. Text fallback for MRP & Selling Price on FirstCry search card
+                            if not scraped_mrp:
+                                mrp_search = re.search(r"MRP\.?\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", card_text, re.I)
+                                if mrp_search:
+                                    scraped_mrp = float(mrp_search.group(1).replace(",", ""))
+
+                            pm_discount = re.search(
+                                r"₹?\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*[\r\n\s]+₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)\s*[\r\n\s]*\(\d+%\s*Off\)",
+                                card_text,
+                                re.I
+                            )
                             pm_club = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)|([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*Club\s*Price", card_text, re.I)
                             pm_plain = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", card_text)
+
                             if pm_discount:
                                 price = float(pm_discount.group(1))
-                                scraped_mrp = float(pm_discount.group(2))
+                                if not scraped_mrp:
+                                    scraped_mrp = float(pm_discount.group(2))
                             elif pm_club:
                                 price = float(pm_club.group(1) or pm_club.group(2))
+                            elif sp_el.count() > 0:
+                                sp_txt = sp_el.inner_text() or ""
+                                sp_m = re.search(r"([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", sp_txt.replace(",", ""))
+                                if sp_m:
+                                    price = float(sp_m.group(1))
                             elif pm_plain:
                                 price = float(pm_plain.group(1))
 
-                            if price <= 10:
+                            if price <= 40:
                                 continue
 
                             brand = determine_brand(title_text)
@@ -830,7 +896,9 @@ def scrape_deals():
                             if not expected_mrp:
                                 continue
 
-                            coupon, final_price, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
+                            coupon, final_price, pdp_mrp, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
+                            if pdp_mrp and pdp_mrp >= 150:
+                                expected_mrp = pdp_mrp
 
                             if final_price > expected_mrp:
                                 if pdp_img_path and os.path.exists(pdp_img_path):
@@ -843,7 +911,6 @@ def scrape_deals():
                                 img_path = f"temp_fc_{i}.png"
                                 card.screenshot(path=img_path)
 
-                            # Lock both ID and Title into seen_deals BEFORE sending so it never double-fires
                             seen_deals.add(deal_key)
                             seen_deals.add(title_key)
                             save_seen_deals(seen_deals)
@@ -865,6 +932,7 @@ def scrape_deals():
 
     save_seen_deals(seen_deals)
     print(f"\n🏁 Deal scan complete. Added {new_seen_count} new in-stock deals to cache.", flush=True)
+
 
 if __name__ == "__main__":
     scrape_deals()
