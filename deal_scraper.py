@@ -377,7 +377,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         # --- LAYER 1: Extract Exact MRP Printed on FirstCry Product Page ---
         scraped_pdp_mrp = None
 
-        # 1A. Check explicit DOM elements for MRP on FirstCry PDP
         mrp_el = pdp_page.locator(".pdp-mrp, .mrp-price, .prod-mrp, del, strike, [class*='mrp']").first
         if mrp_el.count() > 0:
             mrp_el_txt = mrp_el.inner_text() or ""
@@ -385,7 +384,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             if m_dom:
                 scraped_pdp_mrp = round(float(m_dom.group(1)))
 
-        # 1B. Check text patterns like "MRP: ₹599", "MRP ₹899", or "₹443.24 MRP: ₹599 26% OFF"
         if not scraped_pdp_mrp:
             pdp_mrp_match = re.search(
                 r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)|₹?\s*[1-9][0-9]{1,4}(?:\.[0-9]{1,2})?\s+MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4})",
@@ -399,7 +397,6 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         if scraped_pdp_mrp and scraped_pdp_mrp >= 150:
             pdp_mrp = scraped_pdp_mrp
 
-        # Also check if Club Price is listed on the PDP (e.g., "Club Price: ₹431.26")
         club_p_match = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
         if club_p_match:
             cp_val = float(club_p_match.group(1))
@@ -663,9 +660,10 @@ def scrape_deals():
             ]
         )
 
+        # Tall 1366x1400 viewport ensures tall Amazon cards never clip against the top or bottom of the screen!
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768},
+            viewport={"width": 1366, "height": 1400},
             locale="en-IN",
             timezone_id="Asia/Kolkata"
         )
@@ -694,6 +692,9 @@ def scrape_deals():
                         page.goto(paged_url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
                         time.sleep(2.5)
 
+                        # Hide any sticky Amazon headers/banners so they never overlap or clip cards
+                        page.add_style_tag(content="#navbar-main, #nav-belt, .s-Quantities-bar, .a-sticky-top { position: static !important; }")
+
                         for _ in range(2):
                             page.evaluate("window.scrollBy(0, 1800)")
                             time.sleep(0.8)
@@ -715,8 +716,17 @@ def scrape_deals():
                                 if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                     continue
 
-                                h2_el = card.locator("h2").first
-                                title_text = h2_el.inner_text().strip() if h2_el.count() > 0 else card_text.split("\n")[0]
+                                # FIXED AMAZON TITLE: Combine all <h2> elements inside the card (Brand <h2> + Model Name <h2>)
+                                h2_texts = [t.strip() for t in card.locator("h2").all_inner_texts() if t.strip()]
+                                if len(h2_texts) >= 2:
+                                    if h2_texts[0].lower() in h2_texts[1].lower():
+                                        title_text = h2_texts[1]
+                                    else:
+                                        title_text = f"{h2_texts[0]} {h2_texts[1]}"
+                                elif len(h2_texts) == 1:
+                                    title_text = h2_texts[0]
+                                else:
+                                    title_text = card_text.split("\n")[0]
 
                                 if not any(b in title_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
                                     if "matchbox" in card_text.lower():
@@ -728,7 +738,7 @@ def scrape_deals():
 
                                 amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
-                                # RESTOCK TRACKER 1 (Amazon OOS): If item went Out of Stock, evict from seen_deals so future restock alerts!
+                                # RESTOCK TRACKER 1 (Amazon OOS)
                                 if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
                                     if asin in seen_deals or amz_title_key in seen_deals:
                                         seen_deals.discard(asin)
@@ -739,7 +749,6 @@ def scrape_deals():
 
                                 price_elem = card.locator(".a-price-whole").first
                                 if price_elem.count() == 0:
-                                    # No price means unavailable/buying options only -> evict if previously seen
                                     if asin in seen_deals or amz_title_key in seen_deals:
                                         seen_deals.discard(asin)
                                         seen_deals.discard(amz_title_key)
@@ -764,7 +773,7 @@ def scrape_deals():
                                     brand, title_text, price, scraped_mrp=scraped_mrp, store=store
                                 )
 
-                                # RESTOCK TRACKER 2 (Amazon Price Jump): If MRP stock sold out and price jumped to scalper price (> MRP), evict from cache!
+                                # RESTOCK TRACKER 2 (Amazon Price Jump > MRP)
                                 if not is_valid_mrp:
                                     if asin in seen_deals or amz_title_key in seen_deals:
                                         seen_deals.discard(asin)
@@ -773,22 +782,43 @@ def scrape_deals():
                                         print(f"   🔄 [Amazon Price > MRP] Cleared from cache for future price drop: {clean_product_title(title_text)[:35]}", flush=True)
                                     continue
 
-                                # Now check if this in-stock, valid-MRP deal was already alerted
                                 if asin in seen_deals or amz_title_key in seen_deals:
                                     continue
-
-                                # Center the card cleanly in the viewport before screenshotting so it never clips the top
-                                card.evaluate("el => el.scrollIntoView({block: 'center', inline: 'nearest'})")
-                                time.sleep(0.5)
 
                                 coupon = extract_amazon_coupon(card_text)
                                 delivery = extract_amazon_delivery(card_text)
 
+                                # FIXED SCREENSHOT ALIGNMENT:
+                                # 1. Scroll the card + image container into the exact middle of our tall 1400px viewport
                                 inner_box = card.locator(".s-card-container").first
                                 target_shot = inner_box if inner_box.count() > 0 else card
+                                target_shot.evaluate(
+                                    "el => { const rect = el.getBoundingClientRect(); "
+                                    "window.scrollBy(0, rect.top - 180); }"
+                                )
+                                time.sleep(0.6)
 
+                                # 2. Ensure the lazy-loaded <img> inside the card has finished decoding
+                                card_img = card.locator("img.s-image").first
+                                if card_img.count() > 0:
+                                    try:
+                                        card_img.evaluate("img => img.complete || new Promise(r => { img.onload = r; img.onerror = r; setTimeout(r, 800); })")
+                                    except Exception:
+                                        pass
+
+                                # 3. Capture via page.screenshot(clip=...) using exact viewport coordinates so Playwright NEVER auto-scrolls and clips the top!
                                 img_path = f"temp_deal_{asin}.png"
-                                target_shot.screenshot(path=img_path)
+                                box = target_shot.bounding_box()
+                                if box and box["width"] > 50 and box["height"] > 50:
+                                    clip_rect = {
+                                        "x": max(0, box["x"] - 4),
+                                        "y": max(0, box["y"] - 4),
+                                        "width": min(1366 - max(0, box["x"] - 4), box["width"] + 8),
+                                        "height": min(1400 - max(0, box["y"] - 4), box["height"] + 8)
+                                    }
+                                    page.screenshot(path=img_path, clip=clip_rect)
+                                else:
+                                    target_shot.screenshot(path=img_path)
 
                                 seen_deals.add(asin)
                                 seen_deals.add(amz_title_key)
@@ -852,7 +882,7 @@ def scrape_deals():
 
                             title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
-                            # RESTOCK TRACKER (FirstCry OOS): If item sold out, evict from seen_deals so future restock alerts!
+                            # RESTOCK TRACKER (FirstCry OOS)
                             if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
                                 if deal_key in seen_deals or title_key in seen_deals:
                                     seen_deals.discard(deal_key)
@@ -867,7 +897,6 @@ def scrape_deals():
                             price = 0.0
                             scraped_mrp = None
 
-                            # 1. Check direct DOM selectors on FirstCry search card for Selling Price & Strikethrough MRP
                             sp_el = card.locator(".r1, .rupee, .club_price, .sp_amt").first
                             mrp_card_el = card.locator(".r2, del, strike, .mrp_amt").first
                             if mrp_card_el.count() > 0:
@@ -876,7 +905,6 @@ def scrape_deals():
                                 if m_val:
                                     scraped_mrp = float(m_val.group(1))
 
-                            # 2. Text fallback for MRP & Selling Price on FirstCry search card
                             if not scraped_mrp:
                                 mrp_search = re.search(r"MRP\.?\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", card_text, re.I)
                                 if mrp_search:
