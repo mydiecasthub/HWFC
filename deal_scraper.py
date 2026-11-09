@@ -145,10 +145,14 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     if not is_amazon and scraped_mrp and scraped_mrp >= 150:
         return price <= scraped_mrp, round(scraped_mrp)
 
-    # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR (Matches 1/250 to 250/250, e.g. 183/250, 198/250, 207/250) ---
-    if brand == "Hot Wheels" and re.search(r'\b([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|250)\s*/\s*250\b', title):
-        target_mrp = MRP_RULES["Hot Wheels"]["mainline"]
-        return cap_with_scraped_mrp(target_mrp, price, scraped_mrp)
+    # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR ---
+    # Matches 1/250 to 250/250 (e.g. 183/250) OR mini-series 1/10 to 10/10 (e.g. Party Wagon 8/10) OR 1/5 to 5/5 (unless Silver/Premium)
+    if brand == "Hot Wheels":
+        if re.search(r'\b([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|250)\s*/\s*250\b', title):
+            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
+        if re.search(r'\b([1-9]|10)\s*/\s*(10|5)\b', title):
+            if not any(s in t for s in ["silver series", "silver label", "car culture", "pop culture", "boulevard", "real riders", "premium", "ultra hots", "neon speeders", "pantone"]):
+                return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
     f1_keywords = [
         "formula 1", "formula one", "f1", "race team",
@@ -169,21 +173,18 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "boulevard", "car culture", "pop culture", "modern classics", "morden classics",
         "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
         "spettacolare", "slide street", "drag strip", "ronin run", "mountain drifters", "auto strasse",
-        "forza horizon", "nismo 270r", "s14", "silvia", "kool kombi", "mattel 80th", "replica from popular movie"
+        "forza horizon", "nismo 270r", "kool kombi", "mattel 80th", "replica from popular movie"
     ]
 
+    # Franchises that only get ₹549 if scraped_mrp == 549 (e.g. Forza Horizon Land Cruiser w/ M.R.P: ₹549), otherwise treated as Mainline unless Silver keywords match
     pop_culture_franchises = [
-        "forza", "gran turismo", "cyberpunk", "back to the future", "time machine",
-        "ghostbusters", "ecto-1", "teenage mutant ninja turtles", "tmnt", "party wagon",
-        "top gun", "knight rider", "k.i.t.t", "kitt", "jurassic", "mandalorian", "star wars",
-        "marvel", "deadpool", "spider-man", "avengers", "punisher", "x-men", "guardians of the galaxy",
-        "batman", "batmobile", "dark knight", "the batman", "dc comics", "justice league",
-        "fast & furious", "fast and furious", "barbie", "snoopy", "peanuts", "rugrats", "spongebob",
-        "beavis", "butt-head", "mtv", "beatles", "yellow submarine", "led zeppelin", "iron maiden",
-        "ac dc", "rolling stones", "grateful dead", "kiss", "motley crue", "halo", "warthog",
-        "super mario", "mario kart", "street fighter", "overwatch", "world of warcraft",
-        "shell", "gulf", "mobil 1", "valvoline", "pennzoil", "mooneyes", "goodyear", "hks", "advan",
-        "falken", "greddy", "bilstein", "yokohama", "toyo tires", "nismo", "mugen", "spoon"
+        "forza", "gran turismo", "cyberpunk", "back to the future", "ghostbusters",
+        "teenage mutant ninja turtles", "tmnt", "party wagon", "top gun", "knight rider",
+        "jurassic", "mandalorian", "star wars", "marvel", "deadpool", "spider-man", "avengers",
+        "batman", "batmobile", "fast & furious", "fast and furious", "barbie", "snoopy", "peanuts",
+        "rugrats", "spongebob", "beavis", "butt-head", "mtv", "beatles", "yellow submarine",
+        "led zeppelin", "iron maiden", "halo", "super mario", "mario kart", "street fighter",
+        "shell", "gulf", "mobil 1", "valvoline", "pennzoil", "mooneyes", "goodyear", "hks", "advan", "falken"
     ]
 
     # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
@@ -297,22 +298,21 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         ]) or ("premium" in t and "silver" not in t):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
 
-        elif any(f in t for f in pop_culture_franchises):
-            if scraped_mrp and round(scraped_mrp) == 549:
-                return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
-            else:
-                return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
+        # Pop Culture Franchise check: ONLY assign ₹549 if Amazon's scraped_mrp is ₹549 (e.g. Forza Horizon 6 Land Cruiser)
+        elif any(f in t for f in pop_culture_franchises) and scraped_mrp and round(scraped_mrp) == 549:
+            return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
 
-        # Silver-Label Singles (Includes Vintage Racing / Vintage Grand Prix / Exclusive Wheels) -> ₹299
+        # Silver-Label Singles -> ₹299 (Strictly requires explicit Silver Series / Themed / Vintage / Ultra Hots / Neon Speeders / Celebrations keywords!)
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
             "vintage racing", "vintage grand prix", "vintage 6", "vintage 7", "exclusive wheels",
             "themed packaging", "celebrations", "themed entertainment", "automotive",
             "pantone", "performance trucks", "streets of japan", "anniversary",
-            "classic tv series batmobile", "batman forever", "the batman", "batman classic", "arkham", "85th anniversary"
+            "classic tv series batmobile", "batman forever", "batman classic", "arkham", "85th anniversary"
         ]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
 
+        # Default: All other singles (including Screen Time Party Wagon 8/10, Mainline Batmobiles, etc.) -> ₹179 Mainline!
         else:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
@@ -367,15 +367,24 @@ def extract_amazon_delivery(card_text):
 
 def capture_square_amazon_card(page, card, img_path):
     """
-    1. Hides clutter rows (Ages, bank offers, Add to Cart button).
-    2. Anchors the top of the screenshot directly to 16px ABOVE the product <img> element
-       so the top of the car photo is NEVER clipped!
-    3. Pads the horizontal width so the aspect ratio stays in Telegram's un-cropped zone.
+    1. Temporarily hides neighboring cards on the left/right so horizontal padding is pure white!
+    2. Hides bottom clutter rows (Ages, bank offers, Add to Cart button).
+    3. Anchors the top of the screenshot 16px ABOVE the product <img> so the car is 100% visible!
+    4. Restores neighboring cards right after snapping the screenshot.
     """
     try:
         clip_box = card.evaluate(
             """el => {
-                // 1. Hide bottom clutter rows so the card height is compact
+                // 1. Temporarily hide all other search result cards so side padding is pure white
+                const parentResult = el.closest("div[data-component-type='s-search-result']") || el;
+                const allResults = document.querySelectorAll("div[data-component-type='s-search-result']");
+                for (const r of allResults) {
+                    if (r !== parentResult) {
+                        r.style.visibility = 'hidden';
+                    }
+                }
+
+                // 2. Hide bottom clutter rows so the card height is compact
                 const nodes = el.querySelectorAll('.a-row, .s-padding-left-small > div, span, div');
                 for (const d of nodes) {
                     const txt = (d.innerText || '').trim();
@@ -388,7 +397,7 @@ def capture_square_amazon_card(page, card, img_path):
                 const btns = el.querySelectorAll('button, .a-button, [data-action="s-add-to-cart"]');
                 for (const b of btns) b.style.display = 'none';
 
-                // 2. Scroll the product image itself to y = 180px in the 1400px viewport
+                // 3. Scroll the product image itself to y = 180px in the 1400px viewport
                 const img = el.querySelector('img.s-image') || el;
                 const imgRect1 = img.getBoundingClientRect();
                 window.scrollBy(0, imgRect1.top - 180);
@@ -406,12 +415,12 @@ def capture_square_amazon_card(page, card, img_path):
                 };
             }"""
         )
-        time.sleep(0.4)
+        time.sleep(0.35)
 
         if clip_box and clip_box["width"] > 50 and clip_box["height"] > 50:
             raw_w = clip_box["width"]
             raw_h = min(clip_box["height"], 500)
-            # Expand horizontal width to at least 82% of height so Telegram mobile never center-crops the vertical image!
+            # Expand horizontal width to 82% of height (now with pure white sides!) so Telegram mobile never crops top/bottom
             target_w = max(raw_w + 16, round(raw_h * 0.82))
             pad_x = (target_w - raw_w) / 2.0
 
@@ -421,11 +430,24 @@ def capture_square_amazon_card(page, card, img_path):
             h = min(1400 - y, raw_h)
 
             page.screenshot(path=img_path, clip={"x": x, "y": y, "width": w, "height": h})
-            return
+        else:
+            card.screenshot(path=img_path)
     except Exception:
-        pass
-
-    card.screenshot(path=img_path)
+        try:
+            card.screenshot(path=img_path)
+        except Exception:
+            pass
+    finally:
+        # Always restore visibility of all search cards on the page
+        try:
+            page.evaluate(
+                """() => {
+                    const allResults = document.querySelectorAll("div[data-component-type='s-search-result']");
+                    for (const r of allResults) r.style.visibility = 'visible';
+                }"""
+            )
+        except Exception:
+            pass
 
 
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
