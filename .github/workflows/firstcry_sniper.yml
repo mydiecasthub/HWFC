@@ -2,10 +2,10 @@ name: FirstCry Deal Sniper
 
 on:
   schedule:
-    # Runs every 10 mins from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
-    - cron: '30-50/10 2 * * *'
-    - cron: '*/10 3-17 * * *'
-    - cron: '0-30/10 18 * * *'
+    # Runs from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
+    - cron: '30,40,50 2 * * *'
+    - cron: '0,10,20,30,40,50 3-17 * * *'
+    - cron: '0,10,20,30 18 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +18,7 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Checkout repository
@@ -29,10 +29,23 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache Playwright and Pip packages
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/pip
+          key: ${{ runner.os }}-playwright-fc-v1
+
       - name: Install dependencies
         run: |
           pip install playwright requests beautifulsoup4
-          playwright install chromium --with-deps
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
+            playwright install chromium --with-deps
+          else
+            playwright install-deps chromium
+          fi
 
       - name: Run FirstCry Deal Scraper
         env:
