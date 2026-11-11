@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
     - cron: '30,40,50 2 * * *'
-    - cron: '0,10,20,30,40,50 3-17 * * *'
+    - cron: '15,30,45 3-17 * * *'
     - cron: '0,10,20,30 18 * * *'
   workflow_dispatch:
 
