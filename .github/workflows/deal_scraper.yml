@@ -1,17 +1,17 @@
-name: Mass-Market Deal Scraper
+name: FirstCry Deal Sniper
 
 on:
   schedule:
-    - cron: '30 0,1 * * *'
-    - cron: '30,45 2 * * *'
-    - cron: '*/15 3-17 * * *'
-    - cron: '0,15,30 18 * * *'
+    # Runs every 5 mins from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
+    - cron: '30-55/5 2 * * *'
+    - cron: '*/5 3-17 * * *'
+    - cron: '0-30/5 18 * * *'
   workflow_dispatch:
 
-# CRITICAL LOCK: Never allow two runs (e.g. cron + manual run) to execute at the same time!
+# Prevents two runs from overlapping if GitHub Actions delays a runner
 concurrency:
-  group: deal-scraper-single-instance
-  cancel-in-progress: true
+  group: firstcry-sniper-group
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -19,6 +19,8 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,30 +29,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 playwright
+          pip install playwright requests beautifulsoup4
           playwright install chromium --with-deps
 
-      - name: Pull latest seen_deals.json before scanning
-        run: |
-          git pull origin main --rebase || true
-
-      - name: Run Deal Scraper
+      - name: Run FirstCry Deal Scraper
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CUELINKS_API_KEY: ${{ secrets.CUELINKS_API_KEY }}
-          AMAZON_AFFILIATE_TAG: ${{ secrets.AMAZON_AFFILIATE_TAG }}
         run: python deal_scraper.py
 
-      - name: Commit and Push updated seen_deals.json
-        if: always()
+      - name: Commit and push updated seen_deals.json
         run: |
-          if [ -f seen_deals.json ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add seen_deals.json
-            git diff --staged --quiet || (git commit -m "Update seen deals cache [skip ci]" && git pull --rebase origin main && git push origin main)
-          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen_deals.json
+          git diff --staged --quiet || (git commit -m "Update seen_deals.json cache [skip ci]" && git pull --rebase origin main && git push)
