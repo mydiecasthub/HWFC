@@ -5,6 +5,7 @@ import json
 import re
 import html
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
@@ -17,8 +18,10 @@ CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
 
 CACHE_FILE = "seen_deals.json"
 
-# Persistent HTTP session for 0.15s FirstCry PDP live-stock probes
+# Persistent HTTP session for parallel 0.15s FirstCry PDP live-stock probes
 HTTP_SESSION = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+HTTP_SESSION.mount("https://", adapter)
 HTTP_SESSION.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -65,14 +68,23 @@ MRP_RULES = {
     }
 }
 
-# DEDICATED FIRSTCRY TARGET URLS (All lines covered, priority ordered)
+# DEDICATED FIRSTCRY TARGET URLS
+# Includes dedicated Mainline snipers ("250", "die cast free wheel", "toy car") + New Arrivals + F1/Premiums
 TARGET_URLS = [
+    # 1. High-Priority F1, Ferrari & Premium Grails
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 3},
+
+    # 2. Dedicated Mainline Snipers (Catches 161/250 Escort, 245/250 Cuda, etc. buried in normal search!)
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20toy%20car", "scrolls": 6},
+
+    # 3. Full Brand Catalogs & Multi-Packs
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20monster%20truck", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette%20tune%20ups", "scrolls": 2},
@@ -93,7 +105,7 @@ def load_seen_deals():
 
 def save_seen_deals(seen_set):
     try:
-        trimmed_list = list(seen_set)[-800:]
+        trimmed_list = list(seen_set)[-1000:]
         with open(CACHE_FILE, "w") as f:
             json.dump(trimmed_list, f)
     except Exception as e:
@@ -299,45 +311,55 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
 
 def check_firstcry_live_stock_fast(product_url):
     """
-    Ultra-fast (~0.15s) HTTP probe that checks if an OOS search card is actually In Stock on the PDP.
-    FIXED: Checks that 'Notify Me' / 'Out of Stock' is NOT active on the PDP (since FirstCry leaves
-    a hidden 'ADD TO CART' span in the DOM even on Out of Stock pages!).
+    Ultra-fast (~0.15s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache.
+    Accurately detects if an 'Out of Stock' search card has just restocked on the live PDP.
     """
     try:
-        probe_url = f"{product_url}?_ts={int(time.time())}"
+        probe_url = f"{product_url}?_ts={int(time.time() * 1000)}"
         r = HTTP_SESSION.get(probe_url, timeout=4)
         if r.status_code != 200:
             return False, 0.0, None
         html_text = r.text
 
+        # Check explicit JS/JSON out-of-stock flags in FirstCry's PDP source
+        if re.search(r'"isOutOfStock"\s*:\s*true|"StockStatus"\s*:\s*"Out\s*of\s*Stock"|Currently\s+Out\s+of\s+Stock', html_text, re.I):
+            return False, 0.0, None
+
         soup = BeautifulSoup(html_text, "html.parser")
 
-        # 1. Check if any visible/active OOS or Notify Me element exists in the HTML
-        for el in soup.find_all(["div", "span", "button", "a", "p"]):
-            txt = (el.get_text(" ", strip=True) or "").upper()
-            if txt in ["OUT OF STOCK", "SOLD OUT", "NOTIFY ME", "CURRENTLY OUT OF STOCK"]:
-                style = (el.get("style") or "").lower().replace(" ", "")
-                cls = " ".join(el.get("class") or []).lower()
-                if "display:none" not in style and "hide" not in cls and "dn" not in cls:
-                    return False, 0.0, None
+        # Check if the Notify Me wrapper is actively shown (not hidden with display:none or dn/hide class)
+        for el in soup.find_all(attrs={"id": re.compile(r"notify|oos|outofstock", re.I)}):
+            style = (el.get("style") or "").lower().replace(" ", "")
+            cls = " ".join(el.get("class") or []).lower()
+            if "display:none" not in style and "dn" not in cls and "hide" not in cls:
+                return False, 0.0, None
 
-        # 2. Check that an active 'ADD TO CART' button exists and is NOT hidden
-        has_visible_atc = False
+        # Verify 'ADD TO CART' button exists and its container is not display:none
+        has_active_atc = False
         for el in soup.find_all(["div", "span", "button", "a"]):
             txt = (el.get_text(" ", strip=True) or "").upper()
             if txt == "ADD TO CART":
-                style = (el.get("style") or "").lower().replace(" ", "")
-                cls = " ".join(el.get("class") or []).lower()
-                parent_style = (el.parent.get("style") if el.parent else "") or ""
-                parent_style = parent_style.lower().replace(" ", "")
-                if "display:none" not in style and "display:none" not in parent_style and "hide" not in cls and "dn" not in cls:
-                    has_visible_atc = True
+                # Walk up 3 parent levels to ensure none have display:none or 'dn'
+                curr = el
+                hidden = False
+                for _ in range(4):
+                    if not curr:
+                        break
+                    st = (curr.get("style") or "").lower().replace(" ", "")
+                    cl = " ".join(curr.get("class") or []).lower().split()
+                    if "display:none" in st or "dn" in cl or "hide" in cl or "d-none" in cl:
+                        hidden = True
+                        break
+                    curr = curr.parent
+                if not hidden:
+                    has_active_atc = True
                     break
 
-        if not has_visible_atc:
+        if not has_active_atc:
             return False, 0.0, None
 
         body_text = soup.get_text(" ", strip=True)
+
         live_mrp = None
         mrp_m = re.search(r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
         if mrp_m:
@@ -365,10 +387,9 @@ def check_firstcry_live_stock_fast(product_url):
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
     """
     Opens the FirstCry PDP and performs:
-    - LAYER 0: Strict Live Buyability / 'Add to Cart' DOM Visibility Check (Blocks phantom OOS alerts!)
+    - LAYER 0: Strict Live 'Add to Cart' DOM Visibility Check
     - LAYER 1: Exact MRP & Club Price extraction
-    - LAYER 2: Coupon extraction & screenshot
-    Returns (is_genuinely_buyable, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str)
+    - LAYER 2: Coupon extraction (including BUYNOW / 30% OFF / 4EXTRA) & screenshot
     """
     pdp_page = context.new_page()
     coupon_code = None
@@ -380,10 +401,9 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
 
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
-        time.sleep(1.5)
+        time.sleep(1.3)
 
         # --- LAYER 0: STRICT DOM BUYABILITY VERIFICATION ---
-        # Checks if 'Notify Me' / 'Out of Stock' is visible OR if 'Add to Cart' is hidden/missing!
         buyability_status = pdp_page.evaluate(
             """() => {
                 function isVisible(el) {
@@ -425,7 +445,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
             return False, None, best_price, pdp_mrp, None, None
 
         pdp_page.evaluate("window.scrollBy(0, 650)")
-        time.sleep(0.8)
+        time.sleep(0.7)
 
         pdp_text = pdp_page.locator("body").inner_text()
 
@@ -498,13 +518,13 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                 if code_m:
                     c = code_m.group(1).strip().upper()
                     if c not in ignore_words and not any(bad in c for bad in ["GET", "CASH", "PAY", "CB"]):
-                        pct_m = re.search(r"(\d{1,2})%\s*OFF", card_header, re.I)
-                        card_pct = float(pct_m.group(1)) if pct_m else 0.0
+                        pcts_in_card = [float(p) for p in re.findall(r"(\d{1,2}(?:\.\d+)?)\s*%\s*OFF", card_header, re.I)]
+                        card_pct = max(pcts_in_card) if pcts_in_card else 0.0
                         is_extra = "extra" in card_header.lower() or "add'l" in card_header.lower() or "additional" in card_header.lower()
                         offers_found.append((card_pct, c, is_extra))
 
             if not offers_found:
-                sec_pcts = [float(p) for p in re.findall(r"(\d{1,2})%\s*OFF", offers_section_text, re.I) if 5 <= float(p) <= 65]
+                sec_pcts = [float(p) for p in re.findall(r"(\d{1,2})\s*%\s*OFF", offers_section_text, re.I) if 4 <= float(p) <= 65]
                 max_sec_pct = max(sec_pcts) if sec_pcts else 0.0
                 for line in offers_section_text.splitlines():
                     clean_line = re.sub(r"[^A-Z0-9]", "", line.strip())
@@ -665,7 +685,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 
 def scrape_deals():
-    print("🚀 Starting Dedicated FirstCry Sniper (with Strict Buyability & Stock Verification)...", flush=True)
+    print("🚀 Starting High-Speed FirstCry Mainline & Grail Sniper...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -699,16 +719,19 @@ def scrape_deals():
 
             try:
                 page.goto(url, timeout=45000, wait_until="domcontentloaded")
-                time.sleep(1.8)
+                time.sleep(1.6)
                 for _ in range(num_scrolls):
-                    page.evaluate("window.scrollBy(0, 1500)")
-                    time.sleep(0.7)
+                    page.evaluate("window.scrollBy(0, 1600)")
+                    time.sleep(0.65)
 
                 product_elements = page.locator("div.list_block")
                 if product_elements.count() == 0:
                     product_elements = page.locator("div.lft.list_cel, li.child_block")
                 count = product_elements.count()
                 print(f"   Found {count} product cards on FirstCry.", flush=True)
+
+                oos_candidates_to_probe = []
+                in_stock_candidates = []
 
                 for i in range(count):
                     try:
@@ -738,37 +761,102 @@ def scrape_deals():
 
                         title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
-                        # Extract "X Left" badge from search card if present
+                        # Quick pre-filter so we never waste HTTP probes on tracks/stands/non-diecast
+                        brand = determine_brand(title_text)
+                        _, prelim_mrp = classify_and_check_mrp(brand, title_text, 150)
+                        if not prelim_mrp:
+                            continue
+
                         card_left_m = re.search(r"\b([1-9][0-9]?)\s*Left\b", card_text, re.I)
                         card_stock_left = f"Only {card_left_m.group(1)} Left!" if card_left_m else None
-
-                        price = 0.0
-                        scraped_mrp = None
 
                         is_card_oos = any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"])
                         if is_card_oos:
                             if clean_link not in probed_oos_urls_this_run:
                                 probed_oos_urls_this_run.add(clean_link)
-                                is_live, live_p, live_m = check_firstcry_live_stock_fast(clean_link)
-                                if is_live:
-                                    print(f"   ⚡ [HTTP PROBE CANDIDATE - VERIFYING ON PDP]: {clean_product_title(title_text)[:40]}", flush=True)
-                                    price = live_p
-                                    scraped_mrp = live_m
-                                    is_card_oos = False
-
-                            if is_card_oos:
+                                oos_candidates_to_probe.append({
+                                    "index": i,
+                                    "clean_link": clean_link,
+                                    "deal_key": deal_key,
+                                    "title_key": title_key,
+                                    "title_text": title_text,
+                                    "card_stock_left": card_stock_left
+                                })
+                            else:
                                 if deal_key in seen_deals or title_key in seen_deals:
                                     seen_deals.discard(deal_key)
                                     seen_deals.discard(title_key)
                                     cache_dirty = True
-                                    print(f"   🔄 [FirstCry OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:35]}", flush=True)
-                                continue
+                            continue
 
                         if not deal_key or deal_key in seen_deals or title_key in seen_deals:
                             continue
 
-                        card.scroll_into_view_if_needed()
-                        time.sleep(0.2)
+                        in_stock_candidates.append({
+                            "index": i,
+                            "card_text": card_text,
+                            "clean_link": clean_link,
+                            "deal_key": deal_key,
+                            "title_key": title_key,
+                            "title_text": title_text,
+                            "card_stock_left": card_stock_left,
+                            "live_price": 0.0,
+                            "live_mrp": None
+                        })
+                    except Exception:
+                        continue
+
+                # --- PARALLEL 10-THREAD LIVE PDP SNIPER FOR OUT-OF-STOCK SEARCH CARDS ---
+                if oos_candidates_to_probe:
+                    print(f"   ⚡ Parallel-probing {len(oos_candidates_to_probe)} OOS cards for un-cached live restocks...", flush=True)
+                    with ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_cand = {
+                            executor.submit(check_firstcry_live_stock_fast, c["clean_link"]): c
+                            for c in oos_candidates_to_probe
+                        }
+                        for future in as_completed(future_to_cand):
+                            cand = future_to_cand[future]
+                            try:
+                                is_live, live_p, live_m = future.result()
+                                if is_live:
+                                    print(f"   🎯 [UN-CACHED LIVE RESTOCK SNIPED!] {clean_product_title(cand['title_text'])[:45]}", flush=True)
+                                    if cand["deal_key"] not in seen_deals and cand["title_key"] not in seen_deals:
+                                        in_stock_candidates.append({
+                                            "index": cand["index"],
+                                            "card_text": "",
+                                            "clean_link": cand["clean_link"],
+                                            "deal_key": cand["deal_key"],
+                                            "title_key": cand["title_key"],
+                                            "title_text": cand["title_text"],
+                                            "card_stock_left": cand["card_stock_left"],
+                                            "live_price": live_p,
+                                            "live_mrp": live_m
+                                        })
+                                else:
+                                    if cand["deal_key"] in seen_deals or cand["title_key"] in seen_deals:
+                                        seen_deals.discard(cand["deal_key"])
+                                        seen_deals.discard(cand["title_key"])
+                                        cache_dirty = True
+                                        print(f"   🔄 [FirstCry OOS] Cleared from cache for future restock: {clean_product_title(cand['title_text'])[:35]}", flush=True)
+                            except Exception:
+                                pass
+
+                # --- PROCESS ALL VERIFIED IN-STOCK CANDIDATES ---
+                for item in in_stock_candidates:
+                    try:
+                        i = item["index"]
+                        card = product_elements.nth(i)
+                        card_text = item["card_text"]
+                        clean_link = item["clean_link"]
+                        deal_key = item["deal_key"]
+                        title_key = item["title_key"]
+                        title_text = item["title_text"]
+                        card_stock_left = item["card_stock_left"]
+                        price = item["live_price"]
+                        scraped_mrp = item["live_mrp"]
+
+                        if deal_key in seen_deals or title_key in seen_deals:
+                            continue
 
                         if price <= 40:
                             sp_el = card.locator(".r1, .rupee, .club_price, .sp_amt").first
@@ -818,7 +906,6 @@ def scrape_deals():
                             context, clean_link, price, expected_mrp
                         )
 
-                        # If the PDP verification proves the item is actually Out of Stock / Notify Me, abort immediately!
                         if not is_buyable:
                             if pdp_img_path and os.path.exists(pdp_img_path):
                                 os.remove(pdp_img_path)
@@ -856,7 +943,7 @@ def scrape_deals():
                             os.remove(img_path)
 
                         new_seen_count += 1
-                        time.sleep(0.6)
+                        time.sleep(0.5)
                     except Exception:
                         continue
 
