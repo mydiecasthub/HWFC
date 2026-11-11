@@ -687,7 +687,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
         "Profile → Recently Viewed, and click Add to Cart from there!"
     )
-    caption_lines.append("\n🚨 Share with your collector buddies!")
+    caption_lines.append("\n🚨 Grab fast!")
     caption = "\n".join(caption_lines)
 
     try:
