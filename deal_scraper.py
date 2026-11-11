@@ -85,7 +85,6 @@ TARGET_URLS = [
     # 3. Full Brand Catalogs & Multi-Packs
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 6},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20monster%20truck", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette%20tune%20ups", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox", "scrolls": 4},
