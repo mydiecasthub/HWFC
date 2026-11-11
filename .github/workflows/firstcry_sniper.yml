@@ -2,10 +2,10 @@ name: FirstCry Deal Sniper
 
 on:
   schedule:
-    # Runs every 5 mins from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
-    - cron: '30-55/5 2 * * *'
-    - cron: '*/5 3-17 * * *'
-    - cron: '0-30/5 18 * * *'
+    # Runs every 10 mins from 8:00 AM IST (02:30 UTC) to 00:00 AM IST (18:30 UTC)
+    - cron: '30-50/10 2 * * *'
+    - cron: '*/10 3-17 * * *'
+    - cron: '0-30/10 18 * * *'
   workflow_dispatch:
 
 concurrency:
