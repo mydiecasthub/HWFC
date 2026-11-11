@@ -30,7 +30,7 @@ HTTP_SESSION.headers.update({
     "Pragma": "no-cache"
 })
 
-# Official Indian Retail MRP Rules (Fallback ceilings if scraped_mrp is missing)
+# Official Indian Retail MRP Rules (Monster Trucks & Sky Busters removed)
 MRP_RULES = {
     "Hot Wheels": {
         "mainline": 179,
@@ -44,7 +44,6 @@ MRP_RULES = {
         "team_transport": 1499,
         "diorama_or_box_set": 2999,
         "premium_5_pack": 3999,
-        "monster_truck": 399,
         "f1_premium": 799,
         "f1_2_pack": 1599,
     },
@@ -68,21 +67,37 @@ MRP_RULES = {
     }
 }
 
+# VIP PRIORITY KEYWORDS: Any card matching these gets evaluated & alerted FIRST before fantasy cars
+PRIORITY_KEYWORDS = [
+    "audi", "mclaren", "ferrari", "lamborghini", "bmw", "bwt alpine", "alpine",
+    "stake f1", "kick sauber", "sauber", "moneygram haas", "haas", "mercedes",
+    "plymouth", "buick", "porsche", "toyota", "mustang", "aston martin",
+    "vintage club", "silver series", "f&f", "fast and furious", "fast & furious",
+    "corvette", "forza", "segundo", "el segundo", "vintage racing", "pagani",
+    "chevy", "chevrolet", "mazda", "honda", "lincoln", "mitsubishi", "road trip",
+    "oracle red bull", "red bull", "dodge", "ford", "lotus", "subaru", "pontiac",
+    "williams", "formula 1", "f1"
+]
+
 # DEDICATED FIRSTCRY TARGET URLS
-# Includes dedicated Mainline snipers ("250", "die cast free wheel", "toy car") + New Arrivals + F1/Premiums
+# Tier 1: Direct Priority Searches for your exact list of Marquees, F1 Teams & Collector Series
+# Tier 2: Mainline & Brand Catalog Sweeps (where Priority Castings are sorted to the top of the queue)
 TARGET_URLS = [
-    # 1. High-Priority F1, Ferrari & Premium Grails
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 2},
+    # --- TIER 1: FIRST PREFERENCE F1, EXOTICS, JDM, MUSCLE & SPECIAL SERIES ---
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula%20alpine%20williams%20red%20bull%20haas%20sauber", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari%20lamborghini%20porsche%20mclaren%20pagani%20lotus", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20audi%20bmw%20mercedes%20aston%20martin%20corvette", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20toyota%20honda%20mazda%20mitsubishi%20subaru", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20mustang%20ford%20chevy%20dodge%20plymouth%20pontiac%20buick%20lincoln", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20fast%20furious%20forza%20vintage%20silver%20road%20trip%20segundo", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 3},
 
-    # 2. Dedicated Mainline Snipers (Catches 161/250 Escort, 245/250 Cuda, etc. buried in normal search!)
+    # --- TIER 2: DEDICATED MAINLINE SNIPERS (1/250 - 250/250 & Die Cast Free Wheel) ---
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20toy%20car", "scrolls": 6},
 
-    # 3. Full Brand Catalogs & Multi-Packs
+    # --- TIER 3: FULL BRAND CATALOGS & MULTI-PACKS (No Monster Trucks) ---
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
@@ -121,6 +136,12 @@ def determine_brand(title):
         return "Hot Wheels"
 
 
+def is_priority_casting(title):
+    """Returns True if the product title matches any of the user's priority marquees or series."""
+    t = title.lower()
+    return any(pk in t for pk in PRIORITY_KEYWORDS)
+
+
 def cap_with_scraped_mrp(expected_mrp, price, scraped_mrp):
     if scraped_mrp and 150 <= scraped_mrp < expected_mrp:
         expected_mrp = round(scraped_mrp)
@@ -131,7 +152,19 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
     t = re.sub(r'[®™©–—/|]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
-    # STRICT ACCESSORY & NON-DIECAST FILTER: Block stands, cases, mats, tracks, keychains, etc.
+    # 1. STRICT BLOCK: MONSTER TRUCKS, BIKES, PLANES & HELICOPTERS
+    if re.search(
+        r'\b(monster\s*truck|monster\s*trucks|big\s*rig|big\s*rigs|monster\s*mover|monster\s*rockerz|'
+        r'rhinomite|mega\s*wrex|demo\s*derby|monster\s*jam|'
+        r'bike|bikes|motorcycle|motorbike|ducati|harley|vespa|scrambler|superbike|dirt\s*bike|motocross|bmx|scooter|'
+        r'plane|planes|aeroplane|airplane|aircraft|fighter\s*jet|helicopter|chopper|sky\s*busters|skybusters|'
+        r'airbus|boeing|propeller|aviation|biplane|seaplane|water\s*bomber)\b',
+        t,
+        re.I
+    ):
+        return False, None
+
+    # 2. STRICT ACCESSORY & NON-DIECAST FILTER: Block stands, cases, mats, tracks, keychains, etc.
     if re.search(r'\b(stand|stands|protector|protectors|acrylic|keychain|magnet|organizer|storage|shelf|rack|mat)\b', t, re.I):
         return False, None
 
@@ -141,7 +174,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         "playset", "play set", "petrol station", "garage", "carry case", "launcher",
         "lapel pin", "rotiform", "1:36", "1:43", "1:24", "1:18", "1/43", "1/24", "1/18",
         "red line club", "rlc", "elite 64", "conventions", "skate", "fingerboard",
-        "monster jam", "rc ", "remote control", "puzzle", "book", "sticker", "t-shirt", "bag"
+        "rc ", "remote control", "puzzle", "book", "sticker", "t-shirt", "bag"
     ]):
         return False, None
 
@@ -175,7 +208,8 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         "boulevard", "car culture", "pop culture", "modern classics", "morden classics",
         "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
         "spettacolare", "slide street", "drag strip", "ronin run", "mountain drifters", "auto strasse",
-        "forza horizon", "nismo 270r", "kool kombi", "mattel 80th", "replica from popular movie"
+        "forza horizon", "nismo 270r", "kool kombi", "mattel 80th", "replica from popular movie",
+        "road trip"
     ]
 
     # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
@@ -234,12 +268,12 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
             if brand == "Hot Wheels":
                 if any(k in t for k in f1_keywords) and "premium" in t and not any(cc in t for cc in car_culture_and_boulevard_keywords):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
-                elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie"]):
+                elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie", "road trip"]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
                 elif any(k in t for k in [
                     "silver series", "silver label", "ultra hots", "neon speeders", "vintage racing",
-                    "celebrations", "themed entertainment", "pantone", "performance trucks",
-                    "streets of japan", "automotive", "fast & furious", "fast and furious"
+                    "vintage club", "celebrations", "themed entertainment", "pantone", "performance trucks",
+                    "streets of japan", "automotive", "fast & furious", "fast and furious", "f&f", "forza"
                 ]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["silver_series"]
                 else:
@@ -258,9 +292,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
 
     # --- 3. SINGLE CARDS CLASSIFICATION ---
     if brand == "Hot Wheels":
-        if "monster truck" in t:
-            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["monster_truck"], price, scraped_mrp)
-        elif any(cc in t for cc in car_culture_and_boulevard_keywords):
+        if any(cc in t for cc in car_culture_and_boulevard_keywords):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
         elif any(k in t for k in f1_keywords) and (
             any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
@@ -273,17 +305,18 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
-            "vintage racing", "vintage grand prix", "vintage 6", "vintage 7", "exclusive wheels",
+            "vintage racing", "vintage club", "vintage grand prix", "vintage 6", "vintage 7", "exclusive wheels",
             "themed packaging", "celebrations", "themed entertainment", "automotive",
             "pantone", "performance trucks", "streets of japan", "anniversary",
-            "classic tv series batmobile", "batman forever", "batman classic", "arkham", "85th anniversary"
+            "classic tv series batmobile", "batman forever", "batman classic", "arkham", "85th anniversary",
+            "fast & furious", "fast and furious", "f&f"
         ]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
         else:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
     elif brand == "Matchbox":
-        if "collectors" in t or "true grip" in t or "sky busters" in t:
+        if "collectors" in t or "true grip" in t:
             return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["collectors"], price, scraped_mrp)
         elif "moving parts" in t:
             return cap_with_scraped_mrp(MRP_RULES["Matchbox"]["moving_parts"], price, scraped_mrp)
@@ -293,7 +326,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
     elif brand == "Majorette":
         if any(k in t for k in ["tune-ups", "tune ups", "tune up"]):
             expected = MRP_RULES["Majorette"]["tune_ups"]
-        elif any(k in t for k in ["deluxe", "collector box", "monster rockerz", "city bus", "city trailer", "aeroplane", "airplane", "airport", "aircraft", "boeing", "airbus", "a350", "a 350"]):
+        elif any(k in t for k in ["deluxe", "collector box", "city bus", "city trailer"]):
             expected = MRP_RULES["Majorette"]["deluxe"]
         elif any(k in t for k in [
             "premium", "racing", "vintage", "jdm", "castheads", "cast heads", "color changer",
@@ -338,7 +371,6 @@ def check_firstcry_live_stock_fast(product_url):
         for el in soup.find_all(["div", "span", "button", "a"]):
             txt = (el.get_text(" ", strip=True) or "").upper()
             if txt == "ADD TO CART":
-                # Walk up 3 parent levels to ensure none have display:none or 'dn'
                 curr = el
                 hidden = False
                 for _ in range(4):
@@ -655,7 +687,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
         "Profile → Recently Viewed, and click Add to Cart from there!"
     )
-    caption_lines.append("\n🚨 Grab it fast!")
+    caption_lines.append("\n🚨 Share with your collector buddies!")
     caption = "\n".join(caption_lines)
 
     try:
@@ -684,7 +716,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 
 def scrape_deals():
-    print("🚀 Starting High-Speed FirstCry Mainline & Grail Sniper...", flush=True)
+    print("🚀 Starting Priority-First FirstCry Die-Cast Sniper (No Monster Trucks/Bikes/Planes)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -718,10 +750,10 @@ def scrape_deals():
 
             try:
                 page.goto(url, timeout=45000, wait_until="domcontentloaded")
-                time.sleep(1.6)
+                time.sleep(1.5)
                 for _ in range(num_scrolls):
                     page.evaluate("window.scrollBy(0, 1600)")
-                    time.sleep(0.65)
+                    time.sleep(0.6)
 
                 product_elements = page.locator("div.list_block")
                 if product_elements.count() == 0:
@@ -760,11 +792,14 @@ def scrape_deals():
 
                         title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
-                        # Quick pre-filter so we never waste HTTP probes on tracks/stands/non-diecast
+                        # Pre-filter: Immediately drop Monster Trucks, Bikes, Planes, Helicopters, Tracks & Stands!
                         brand = determine_brand(title_text)
                         _, prelim_mrp = classify_and_check_mrp(brand, title_text, 150)
                         if not prelim_mrp:
                             continue
+
+                        # Priority Rank: 0 = VIP Priority Casting (Audi, Ferrari, Porsche, F1, Plymouth, Ford, etc.), 1 = Standard
+                        priority_rank = 0 if is_priority_casting(title_text) else 1
 
                         card_left_m = re.search(r"\b([1-9][0-9]?)\s*Left\b", card_text, re.I)
                         card_stock_left = f"Only {card_left_m.group(1)} Left!" if card_left_m else None
@@ -774,6 +809,7 @@ def scrape_deals():
                             if clean_link not in probed_oos_urls_this_run:
                                 probed_oos_urls_this_run.add(clean_link)
                                 oos_candidates_to_probe.append({
+                                    "priority_rank": priority_rank,
                                     "index": i,
                                     "clean_link": clean_link,
                                     "deal_key": deal_key,
@@ -792,6 +828,7 @@ def scrape_deals():
                             continue
 
                         in_stock_candidates.append({
+                            "priority_rank": priority_rank,
                             "index": i,
                             "card_text": card_text,
                             "clean_link": clean_link,
@@ -805,9 +842,12 @@ def scrape_deals():
                     except Exception:
                         continue
 
+                # Sort OOS candidates so VIP Priority Castings get HTTP-probed FIRST!
+                oos_candidates_to_probe.sort(key=lambda x: (x["priority_rank"], x["index"]))
+
                 # --- PARALLEL 10-THREAD LIVE PDP SNIPER FOR OUT-OF-STOCK SEARCH CARDS ---
                 if oos_candidates_to_probe:
-                    print(f"   ⚡ Parallel-probing {len(oos_candidates_to_probe)} OOS cards for un-cached live restocks...", flush=True)
+                    print(f"   ⚡ Parallel-probing {len(oos_candidates_to_probe)} OOS cards (Priority Marquees first)...", flush=True)
                     with ThreadPoolExecutor(max_workers=10) as executor:
                         future_to_cand = {
                             executor.submit(check_firstcry_live_stock_fast, c["clean_link"]): c
@@ -821,6 +861,7 @@ def scrape_deals():
                                     print(f"   🎯 [UN-CACHED LIVE RESTOCK SNIPED!] {clean_product_title(cand['title_text'])[:45]}", flush=True)
                                     if cand["deal_key"] not in seen_deals and cand["title_key"] not in seen_deals:
                                         in_stock_candidates.append({
+                                            "priority_rank": cand["priority_rank"],
                                             "index": cand["index"],
                                             "card_text": "",
                                             "clean_link": cand["clean_link"],
@@ -839,6 +880,9 @@ def scrape_deals():
                                         print(f"   🔄 [FirstCry OOS] Cleared from cache for future restock: {clean_product_title(cand['title_text'])[:35]}", flush=True)
                             except Exception:
                                 pass
+
+                # Sort In-Stock Candidates so VIP Priority Castings get screenshotted & alerted on Telegram FIRST!
+                in_stock_candidates.sort(key=lambda x: (x["priority_rank"], x["index"]))
 
                 # --- PROCESS ALL VERIFIED IN-STOCK CANDIDATES ---
                 for item in in_stock_candidates:
