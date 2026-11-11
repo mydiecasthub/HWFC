@@ -65,7 +65,7 @@ MRP_RULES = {
     }
 }
 
-# DEDICATED FIRSTCRY TARGET URLS (Priority ordered: F1 & Grails first, then full lines)
+# DEDICATED FIRSTCRY TARGET URLS (All lines covered, priority ordered)
 TARGET_URLS = [
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 2},
@@ -73,8 +73,11 @@ TARGET_URLS = [
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20monster%20truck", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette%20tune%20ups", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox%20moving%20parts", "scrolls": 2},
 ]
 
 
@@ -296,8 +299,9 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
 
 def check_firstcry_live_stock_fast(product_url):
     """
-    Ultra-fast (~0.15s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache.
-    Checks the live Product Detail Page HTML directly when a search card shows 'Out of Stock'.
+    Ultra-fast (~0.15s) HTTP probe that checks if an OOS search card is actually In Stock on the PDP.
+    FIXED: Checks that 'Notify Me' / 'Out of Stock' is NOT active on the PDP (since FirstCry leaves
+    a hidden 'ADD TO CART' span in the DOM even on Out of Stock pages!).
     """
     try:
         probe_url = f"{product_url}?_ts={int(time.time())}"
@@ -307,14 +311,33 @@ def check_firstcry_live_stock_fast(product_url):
         html_text = r.text
 
         soup = BeautifulSoup(html_text, "html.parser")
+
+        # 1. Check if any visible/active OOS or Notify Me element exists in the HTML
+        for el in soup.find_all(["div", "span", "button", "a", "p"]):
+            txt = (el.get_text(" ", strip=True) or "").upper()
+            if txt in ["OUT OF STOCK", "SOLD OUT", "NOTIFY ME", "CURRENTLY OUT OF STOCK"]:
+                style = (el.get("style") or "").lower().replace(" ", "")
+                cls = " ".join(el.get("class") or []).lower()
+                if "display:none" not in style and "hide" not in cls and "dn" not in cls:
+                    return False, 0.0, None
+
+        # 2. Check that an active 'ADD TO CART' button exists and is NOT hidden
+        has_visible_atc = False
+        for el in soup.find_all(["div", "span", "button", "a"]):
+            txt = (el.get_text(" ", strip=True) or "").upper()
+            if txt == "ADD TO CART":
+                style = (el.get("style") or "").lower().replace(" ", "")
+                cls = " ".join(el.get("class") or []).lower()
+                parent_style = (el.parent.get("style") if el.parent else "") or ""
+                parent_style = parent_style.lower().replace(" ", "")
+                if "display:none" not in style and "display:none" not in parent_style and "hide" not in cls and "dn" not in cls:
+                    has_visible_atc = True
+                    break
+
+        if not has_visible_atc:
+            return False, 0.0, None
+
         body_text = soup.get_text(" ", strip=True)
-
-        if re.search(r"(Currently\s+Out\s+of\s+Stock|Sold\s+Out|Notify\s+Me\s+When\s+Available)", body_text, re.I):
-            return False, 0.0, None
-
-        if "ADD TO CART" not in body_text.upper():
-            return False, 0.0, None
-
         live_mrp = None
         mrp_m = re.search(r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
         if mrp_m:
@@ -340,19 +363,76 @@ def check_firstcry_live_stock_fast(product_url):
 
 
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
+    """
+    Opens the FirstCry PDP and performs:
+    - LAYER 0: Strict Live Buyability / 'Add to Cart' DOM Visibility Check (Blocks phantom OOS alerts!)
+    - LAYER 1: Exact MRP & Club Price extraction
+    - LAYER 2: Coupon extraction & screenshot
+    Returns (is_genuinely_buyable, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str)
+    """
     pdp_page = context.new_page()
     coupon_code = None
     best_price = fallback_price
     pdp_mrp = expected_mrp
     screenshot_path = None
+    is_buyable = True
+    stock_left_str = None
 
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
         time.sleep(1.5)
+
+        # --- LAYER 0: STRICT DOM BUYABILITY VERIFICATION ---
+        # Checks if 'Notify Me' / 'Out of Stock' is visible OR if 'Add to Cart' is hidden/missing!
+        buyability_status = pdp_page.evaluate(
+            """() => {
+                function isVisible(el) {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 5 && rect.height > 5;
+                }
+
+                let hasVisibleAddToCart = false;
+                let hasVisibleOutOfStock = false;
+
+                const elements = document.querySelectorAll('button, a, div, span, p, input');
+                for (const el of elements) {
+                    if (!isVisible(el)) continue;
+                    const txt = (el.innerText || el.value || '').trim().toUpperCase();
+                    if (txt === 'ADD TO CART' || txt === 'BUY NOW') {
+                        hasVisibleAddToCart = true;
+                    }
+                    if (
+                        txt === 'NOTIFY ME' ||
+                        txt === 'OUT OF STOCK' ||
+                        txt === 'CURRENTLY OUT OF STOCK' ||
+                        txt === 'SOLD OUT' ||
+                        txt.includes('NOTIFY ME WHEN AVAILABLE')
+                    ) {
+                        if (el.children.length <= 2) {
+                            hasVisibleOutOfStock = true;
+                        }
+                    }
+                }
+                return { hasVisibleAddToCart, hasVisibleOutOfStock };
+            }"""
+        )
+
+        if buyability_status.get("hasVisibleOutOfStock") or not buyability_status.get("hasVisibleAddToCart"):
+            print(f"   🛑 [Aborted Alert - PDP is Out of Stock / Notify Me]: {product_url}", flush=True)
+            return False, None, best_price, pdp_mrp, None, None
+
         pdp_page.evaluate("window.scrollBy(0, 650)")
         time.sleep(0.8)
 
         pdp_text = pdp_page.locator("body").inner_text()
+
+        # Check for low stock badge (e.g. "Only 2 Left" or "10 Left")
+        left_m = re.search(r"\b(?:Only\s+)?([1-9][0-9]?)\s+Left\b", pdp_text, re.I)
+        if left_m:
+            stock_left_str = f"Only {left_m.group(1)} Left!"
 
         # --- LAYER 1: Extract Exact MRP Printed on FirstCry Product Page ---
         scraped_pdp_mrp = None
@@ -464,7 +544,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     finally:
         pdp_page.close()
 
-    return coupon_code, best_price, pdp_mrp, screenshot_path
+    return is_buyable, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str
 
 
 def normalize_and_clean_url(raw_url, domain_prefix="https://www.firstcry.com"):
@@ -523,7 +603,7 @@ def clean_product_title(raw_title):
     return cleaned
 
 
-def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None):
+def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None, stock_left=None):
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
 
@@ -545,6 +625,9 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         formatted_link
     ]
 
+    if stock_left:
+        caption_lines.append(f"⚡ <b>Stock:</b> {html.escape(stock_left)} — Grab Fast!")
+
     if coupon:
         safe_coupon = html.escape(str(coupon))
         caption_lines.append(f"\n📍 <b>Coupon:</b> <code>{safe_coupon}</code>")
@@ -553,7 +636,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
         "Profile → Recently Viewed, and click Add to Cart from there!"
     )
-    caption_lines.append("\n🚨 Happy Hunting!")
+    caption_lines.append("\n🚨 Share with your collector buddies!")
     caption = "\n".join(caption_lines)
 
     try:
@@ -564,7 +647,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Stock: {stock_left} | Coupon: {coupon})", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -576,13 +659,13 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Stock: {stock_left} | Coupon: {coupon})", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 
 def scrape_deals():
-    print("🚀 Starting Dedicated High-Speed FirstCry Sniper (Hot Wheels, Matchbox, Majorette)...", flush=True)
+    print("🚀 Starting Dedicated FirstCry Sniper (with Strict Buyability & Stock Verification)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -655,18 +738,20 @@ def scrape_deals():
 
                         title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
+                        # Extract "X Left" badge from search card if present
+                        card_left_m = re.search(r"\b([1-9][0-9]?)\s*Left\b", card_text, re.I)
+                        card_stock_left = f"Only {card_left_m.group(1)} Left!" if card_left_m else None
+
                         price = 0.0
                         scraped_mrp = None
 
-                        # LIVE-STOCK SNIPER FOR ALL FIRSTCRY PRODUCTS:
-                        # Even if FirstCry's cached search card says "Out of Stock" / "Notify Me", probe the live PDP via fast HTTP!
                         is_card_oos = any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"])
                         if is_card_oos:
                             if clean_link not in probed_oos_urls_this_run:
                                 probed_oos_urls_this_run.add(clean_link)
                                 is_live, live_p, live_m = check_firstcry_live_stock_fast(clean_link)
                                 if is_live:
-                                    print(f"   ⚡ [LIVE PDP RESTOCK CAUGHT BEFORE SEARCH CACHE!] {clean_product_title(title_text)[:40]}", flush=True)
+                                    print(f"   ⚡ [HTTP PROBE CANDIDATE - VERIFYING ON PDP]: {clean_product_title(title_text)[:40]}", flush=True)
                                     price = live_p
                                     scraped_mrp = live_m
                                     is_card_oos = False
@@ -729,7 +814,20 @@ def scrape_deals():
                         if not expected_mrp:
                             continue
 
-                        coupon, final_price, pdp_mrp, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
+                        is_buyable, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
+                            context, clean_link, price, expected_mrp
+                        )
+
+                        # If the PDP verification proves the item is actually Out of Stock / Notify Me, abort immediately!
+                        if not is_buyable:
+                            if pdp_img_path and os.path.exists(pdp_img_path):
+                                os.remove(pdp_img_path)
+                            if deal_key in seen_deals or title_key in seen_deals:
+                                seen_deals.discard(deal_key)
+                                seen_deals.discard(title_key)
+                                cache_dirty = True
+                            continue
+
                         if pdp_mrp and pdp_mrp >= 150:
                             expected_mrp = pdp_mrp
 
@@ -748,7 +846,11 @@ def scrape_deals():
                         seen_deals.add(title_key)
                         save_seen_deals(seen_deals)
 
-                        send_telegram_deal(store, title_text, final_price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+                        final_stock_left = pdp_stock_left or card_stock_left
+                        send_telegram_deal(
+                            store, title_text, final_price, expected_mrp, clean_link,
+                            image_path=img_path, coupon=coupon, stock_left=final_stock_left
+                        )
 
                         if os.path.exists(img_path):
                             os.remove(img_path)
