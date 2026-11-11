@@ -4,7 +4,6 @@ import time
 import json
 import re
 import html
-import random
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -15,11 +14,20 @@ sys.stdout.reconfigure(line_buffering=True)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
-AMAZON_AFFILIATE_TAG = os.environ.get("AMAZON_AFFILIATE_TAG", "")
 
 CACHE_FILE = "seen_deals.json"
 
-# Official Indian Retail MRP Rules (Strict ceilings across all lines)
+# Persistent HTTP session for 0.15s FirstCry PDP live-stock probes
+HTTP_SESSION = requests.Session()
+HTTP_SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache"
+})
+
+# Official Indian Retail MRP Rules (Fallback ceilings if scraped_mrp is missing)
 MRP_RULES = {
     "Hot Wheels": {
         "mainline": 179,
@@ -57,31 +65,16 @@ MRP_RULES = {
     }
 }
 
+# DEDICATED FIRSTCRY TARGET URLS (Priority ordered: F1 & Grails first, then full lines)
 TARGET_URLS = [
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels", "pages": 3},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&s=date-desc-rank", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A12000-56000", "pages": 3},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels&rh=p_36%3A50000-155000", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+5+Pack", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Formula+1", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Race+Team+Premium", "pages": 1},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Silver+Series", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Premium", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Pop+Culture", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Car+Culture", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+2+Pack+Team+Transport", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Forza+Gran+Turismo", "pages": 1},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Hot+Wheels+Batmobile+Batman", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Matchbox+cars", "pages": 2},
-    {"store": "Amazon.in", "url": "https://www.amazon.in/s?k=Majorette+cars", "pages": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox"},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette"}
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams%20alpine", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox", "scrolls": 4},
 ]
 
 
@@ -115,13 +108,12 @@ def determine_brand(title):
 
 
 def cap_with_scraped_mrp(expected_mrp, price, scraped_mrp):
-    # If the store prints a valid official MRP that is LOWER than our ceiling (e.g. ₹699 on older Super Rigs), use the lower MRP
     if scraped_mrp and 150 <= scraped_mrp < expected_mrp:
         expected_mrp = round(scraped_mrp)
     return price <= expected_mrp, expected_mrp
 
 
-def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
+def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
     t = re.sub(r'[®™©–—/|]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
@@ -139,14 +131,11 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     ]):
         return False, None
 
-    is_amazon = "amazon" in store.lower()
-
     # FIRSTCRY TRUST RULE: Always use the MRP scraped from the FirstCry card/page when available!
-    if not is_amazon and scraped_mrp and scraped_mrp >= 150:
+    if scraped_mrp and scraped_mrp >= 150:
         return price <= scraped_mrp, round(scraped_mrp)
 
     # --- 0. FOOLPROOF MAINLINE NUMBERING DETECTOR ---
-    # Matches 1/250 to 250/250 (e.g. 183/250) OR mini-series 1/10 to 10/10 (e.g. Party Wagon 8/10) OR 1/5 to 5/5 (unless Silver/Premium)
     if brand == "Hot Wheels":
         if re.search(r'\b([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|250)\s*/\s*250\b', title):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
@@ -168,7 +157,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "hulkenberg", "bortoleto", "ocon", "bearman"
     ]
 
-    # Car Culture / Boulevard / Pop Culture series names (MRP: ₹549)
     car_culture_and_boulevard_keywords = [
         "boulevard", "car culture", "pop culture", "modern classics", "morden classics",
         "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
@@ -176,56 +164,32 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
         "forza horizon", "nismo 270r", "kool kombi", "mattel 80th", "replica from popular movie"
     ]
 
-    # Franchises that only get ₹549 if scraped_mrp == 549 (e.g. Forza Horizon Land Cruiser w/ M.R.P: ₹549), otherwise treated as Mainline unless Silver keywords match
-    pop_culture_franchises = [
-        "forza", "gran turismo", "cyberpunk", "back to the future", "ghostbusters",
-        "teenage mutant ninja turtles", "tmnt", "party wagon", "top gun", "knight rider",
-        "jurassic", "mandalorian", "star wars", "marvel", "deadpool", "spider-man", "avengers",
-        "batman", "batmobile", "fast & furious", "fast and furious", "barbie", "snoopy", "peanuts",
-        "rugrats", "spongebob", "beavis", "butt-head", "mtv", "beatles", "yellow submarine",
-        "led zeppelin", "iron maiden", "halo", "super mario", "mario kart", "street fighter",
-        "shell", "gulf", "mobil 1", "valvoline", "pennzoil", "mooneyes", "goodyear", "hks", "advan", "falken"
-    ]
-
     # --- 1. BRAND-SPECIFIC MULTI-CAR PACKS & SPECIAL BOX SETS ---
     if brand == "Hot Wheels":
-        # Block fake Amazon "Complete Set of 5" Silver Series single-car traps (e.g. Surfs Up @ ₹499)
-        if "complete set" in t and any(s in t for s in ["silver series", "surfs up", "surf s up"]):
-            return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
-
-        # Gold-Label Team Transport -> ₹1,499
         if any(k in t for k in ["team transport", "kousoku", "fleet flyer", "retro rig", "aero lift", "sakura sprinter", "euro hauler", "carry on", "transport hauler"]):
             return price <= MRP_RULES["Hot Wheels"]["team_transport"], MRP_RULES["Hot Wheels"]["team_transport"]
 
-        # Super Rigs / Heavy Haulers -> ₹999 (or ₹699 if Amazon prints M.R.P: ₹699)
         if any(k in t for k in ["super rig", "super rigs", "heavy doody", "hauling rig", "transporter vehicle with 1"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["super_rig"], price, scraped_mrp)
 
-        # Gold-Label Premium 5-Pack Collector Bundles (F&F / Car Culture) -> ₹3,999
         if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5-car pack", "5 car pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_5_pack"], price, scraped_mrp)
 
-        # Basics: Standard 5-Packs (STRICT: Must explicitly say 5-Pack / Pack of 5 / Set of 5 / 5-Car Pack!) -> ₹899
         if any(k in t for k in ["5 pack", "5-pack", "5-car pack", "5 car pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars"]) and "silver" not in t and "car culture" not in t and "real riders" not in t:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["5_pack"], price, scraped_mrp)
 
-        # Silver-Label Themed 6-Packs -> ₹1,999
         if any(k in t for k in ["6-pack", "6 pack", "6-car pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["themed_6_pack"], price, scraped_mrp)
 
-        # Formula 1 Premium 2-Packs -> ₹1,599
         if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["f1_2_pack"], price, scraped_mrp)
 
-        # Gold-Label Car Culture 2-Packs -> ₹1,099
         if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["car_culture_2_pack"], price, scraped_mrp)
 
-        # Basics: Color Reveal 2-Pack -> ₹999
         if "color reveal" in t or "colour reveal" in t:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["color_reveal"], price, scraped_mrp)
 
-        # Gold-Label Premium Display Sets / Dioramas -> ₹2,999
         if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["diorama_or_box_set"], price, scraped_mrp)
 
@@ -278,31 +242,21 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             expected_mrp = per_car_mrp * num_cars
             return cap_with_scraped_mrp(expected_mrp, price, scraped_mrp)
 
-    # --- 3. SINGLE CARDS CLASSIFICATION (STRICT LINE MATCHING) ---
+    # --- 3. SINGLE CARDS CLASSIFICATION ---
     if brand == "Hot Wheels":
         if "monster truck" in t:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["monster_truck"], price, scraped_mrp)
-
-        # Check Car Culture / Boulevard / Modern Classics BEFORE F1
         elif any(cc in t for cc in car_culture_and_boulevard_keywords):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
-
         elif any(k in t for k in f1_keywords) and (
             any(p in t for p in ["premium", "car culture", "collectible", "driver", "real riders", "team", "one", "jkd", "hrv"])
             or (scraped_mrp and round(scraped_mrp) == 799)
         ):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["f1_premium"], price, scraped_mrp)
-
         elif any(k in t for k in [
             "real riders", "metal/metal", "metal metal", "premium toy car, truck or van"
         ]) or ("premium" in t and "silver" not in t):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_single"], price, scraped_mrp)
-
-        # Pop Culture Franchise check: ONLY assign ₹549 if Amazon's scraped_mrp is ₹549 (e.g. Forza Horizon 6 Land Cruiser)
-        elif any(f in t for f in pop_culture_franchises) and scraped_mrp and round(scraped_mrp) == 549:
-            return price <= MRP_RULES["Hot Wheels"]["premium_single"], MRP_RULES["Hot Wheels"]["premium_single"]
-
-        # Silver-Label Singles -> ₹299 (Strictly requires explicit Silver Series / Themed / Vintage / Ultra Hots / Neon Speeders / Celebrations keywords!)
         elif any(k in t for k in [
             "silver series", "silver label", "silver-label", "ultra hots", "neon speeders",
             "vintage racing", "vintage grand prix", "vintage 6", "vintage 7", "exclusive wheels",
@@ -311,8 +265,6 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
             "classic tv series batmobile", "batman forever", "batman classic", "arkham", "85th anniversary"
         ]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["silver_series"], price, scraped_mrp)
-
-        # Default: All other singles (including Screen Time Party Wagon 8/10, Mainline Batmobiles, etc.) -> ₹179 Mainline!
         else:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
@@ -342,112 +294,49 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None, store=""):
     return False, None
 
 
-def extract_amazon_coupon(card_text):
-    code_match = re.search(r"(?:with\s+coupon|use\s+code|with\s+code|promo\s+code)\s*:?\s*([A-Z0-9]{5,12})\b", card_text, re.I)
-    if code_match and code_match.group(1).upper() not in ["COUPON", "APPLIED", "SAVINGS", "DETAILS"]:
-        return code_match.group(1).upper()
-
-    clip_match = re.search(r"(Save\s+(?:₹\s*\d+|\d+%)\s+with\s+coupon)", card_text, re.I)
-    if clip_match:
-        return f"{clip_match.group(1)} (Clip on page)"
-    return None
-
-
-def extract_amazon_delivery(card_text):
-    paid_match = re.search(r"(?:\+\s*)?₹\s*([1-9][0-9]{0,3}(?:\.[0-9]{1,2})?)\s*(?:delivery|shipping)", card_text, re.I)
-    if paid_match:
-        amt = float(paid_match.group(1))
-        return f"₹{amt:.0f}"
-
-    if re.search(r"\bFREE\s+delivery\b", card_text, re.I):
-        return "FREE"
-
-    return None
-
-
-def capture_square_amazon_card(page, card, img_path):
+def check_firstcry_live_stock_fast(product_url):
     """
-    1. Temporarily hides neighboring cards on the left/right so horizontal padding is pure white!
-    2. Hides bottom clutter rows (Ages, bank offers, Add to Cart button).
-    3. Anchors the top of the screenshot 16px ABOVE the product <img> so the car is 100% visible!
-    4. Restores neighboring cards right after snapping the screenshot.
+    Ultra-fast (~0.15s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache.
+    Checks the live Product Detail Page HTML directly when a search card shows 'Out of Stock'.
     """
     try:
-        clip_box = card.evaluate(
-            """el => {
-                // 1. Temporarily hide all other search result cards so side padding is pure white
-                const parentResult = el.closest("div[data-component-type='s-search-result']") || el;
-                const allResults = document.querySelectorAll("div[data-component-type='s-search-result']");
-                for (const r of allResults) {
-                    if (r !== parentResult) {
-                        r.style.visibility = 'hidden';
-                    }
-                }
+        probe_url = f"{product_url}?_ts={int(time.time())}"
+        r = HTTP_SESSION.get(probe_url, timeout=4)
+        if r.status_code != 200:
+            return False, 0.0, None
+        html_text = r.text
 
-                // 2. Hide bottom clutter rows so the card height is compact
-                const nodes = el.querySelectorAll('.a-row, .s-padding-left-small > div, span, div');
-                for (const d of nodes) {
-                    const txt = (d.innerText || '').trim();
-                    if (/^(Ages:|Up to 5% back|Or fastest delivery|\\d+K?\\+ bought in past month|Service:|Add to cart)/i.test(txt)) {
-                        if (d.children.length <= 4 && !d.querySelector('img')) {
-                            d.style.display = 'none';
-                        }
-                    }
-                }
-                const btns = el.querySelectorAll('button, .a-button, [data-action="s-add-to-cart"]');
-                for (const b of btns) b.style.display = 'none';
+        soup = BeautifulSoup(html_text, "html.parser")
+        body_text = soup.get_text(" ", strip=True)
 
-                // 3. Scroll the product image itself to y = 180px in the 1400px viewport
-                const img = el.querySelector('img.s-image') || el;
-                const imgRect1 = img.getBoundingClientRect();
-                window.scrollBy(0, imgRect1.top - 180);
+        if re.search(r"(Currently\s+Out\s+of\s+Stock|Sold\s+Out|Notify\s+Me\s+When\s+Available)", body_text, re.I):
+            return False, 0.0, None
 
-                const cardRect = el.getBoundingClientRect();
-                const imgRect2 = img.getBoundingClientRect();
-                const topY = Math.min(cardRect.y, imgRect2.y) - 16;
-                const bottomY = cardRect.bottom + 8;
+        if "ADD TO CART" not in body_text.upper():
+            return False, 0.0, None
 
-                return {
-                    x: cardRect.x,
-                    y: topY,
-                    width: cardRect.width,
-                    height: bottomY - topY
-                };
-            }"""
-        )
-        time.sleep(0.35)
+        live_mrp = None
+        mrp_m = re.search(r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
+        if mrp_m:
+            live_mrp = float(mrp_m.group(1))
 
-        if clip_box and clip_box["width"] > 50 and clip_box["height"] > 50:
-            raw_w = clip_box["width"]
-            raw_h = min(clip_box["height"], 500)
-            # Expand horizontal width to 82% of height (now with pure white sides!) so Telegram mobile never crops top/bottom
-            target_w = max(raw_w + 16, round(raw_h * 0.82))
-            pad_x = (target_w - raw_w) / 2.0
+        live_price = 0.0
+        club_m = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
+        sp_m = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+MRP", body_text, re.I)
+        if club_m:
+            live_price = float(club_m.group(1))
+            if live_mrp and live_price > live_mrp and live_price > 10000:
+                live_price = round(live_price / 100.0)
+        elif sp_m:
+            live_price = float(sp_m.group(1))
+        elif live_mrp:
+            live_price = live_mrp
 
-            x = max(0, clip_box["x"] - pad_x)
-            y = max(0, clip_box["y"])
-            w = min(1366 - x, target_w)
-            h = min(1400 - y, raw_h)
-
-            page.screenshot(path=img_path, clip={"x": x, "y": y, "width": w, "height": h})
-        else:
-            card.screenshot(path=img_path)
+        if live_price > 40:
+            return True, live_price, live_mrp
     except Exception:
-        try:
-            card.screenshot(path=img_path)
-        except Exception:
-            pass
-    finally:
-        # Always restore visibility of all search cards on the page
-        try:
-            page.evaluate(
-                """() => {
-                    const allResults = document.querySelectorAll("div[data-component-type='s-search-result']");
-                    for (const r of allResults) r.style.visibility = 'visible';
-                }"""
-            )
-        except Exception:
-            pass
+        pass
+    return False, 0.0, None
 
 
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
@@ -459,9 +348,9 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
 
     try:
         pdp_page.goto(product_url, timeout=30000, wait_until="domcontentloaded")
-        time.sleep(2.0)
+        time.sleep(1.5)
         pdp_page.evaluate("window.scrollBy(0, 650)")
-        time.sleep(1.2)
+        time.sleep(0.8)
 
         pdp_text = pdp_page.locator("body").inner_text()
 
@@ -559,13 +448,13 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                     best_price = calculated_price
 
         pdp_page.evaluate("window.scrollTo(0, 0)")
-        time.sleep(0.3)
+        time.sleep(0.25)
 
         pdp_container = pdp_page.locator("div.prod-info-wrap, div.pdp-main, div.product-detail-sec, div.main_prod_sec").first
         screenshot_path = f"temp_fc_pdp_{int(time.time()*1000)}.png"
         if pdp_container.count() > 0:
             pdp_container.scroll_into_view_if_needed()
-            time.sleep(0.3)
+            time.sleep(0.25)
             pdp_container.screenshot(path=screenshot_path)
         else:
             pdp_page.screenshot(path=screenshot_path, clip={"x": 50, "y": 80, "width": 1000, "height": 580})
@@ -578,7 +467,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     return coupon_code, best_price, pdp_mrp, screenshot_path
 
 
-def normalize_and_clean_url(raw_url, domain_prefix=""):
+def normalize_and_clean_url(raw_url, domain_prefix="https://www.firstcry.com"):
     if not raw_url:
         return ""
     url = raw_url.strip()
@@ -587,14 +476,6 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
     elif not url.startswith("http"):
         url = f"{domain_prefix.rstrip('/')}/{url.lstrip('/')}"
     url = re.sub(r"^https?://[^/]+//+", "https://", url)
-    if "amazon.in" in url:
-        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
-        if asin_match:
-            asin = asin_match.group(1)
-            base_amzn = f"https://www.amazon.in/dp/{asin}"
-            if AMAZON_AFFILIATE_TAG:
-                return f"{base_amzn}?tag={AMAZON_AFFILIATE_TAG}"
-            return base_amzn
     if "firstcry.com" in url:
         return url.split("?")[0]
     return url
@@ -602,16 +483,6 @@ def normalize_and_clean_url(raw_url, domain_prefix=""):
 
 def convert_to_affiliate_link(raw_url):
     if not raw_url or not raw_url.startswith("http"):
-        return raw_url
-
-    if "amazon.in" in raw_url:
-        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", raw_url)
-        if asin_match:
-            asin = asin_match.group(1)
-            base_amzn = f"https://www.amazon.in/dp/{asin}"
-            if AMAZON_AFFILIATE_TAG:
-                return f"{base_amzn}?tag={AMAZON_AFFILIATE_TAG}"
-            return base_amzn
         return raw_url
 
     if CUELINKS_API_KEY:
@@ -652,7 +523,7 @@ def clean_product_title(raw_title):
     return cleaned
 
 
-def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None, delivery=None):
+def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None, coupon=None):
     clean_title = html.escape(clean_product_title(title))
     safe_store = html.escape(store)
 
@@ -664,49 +535,25 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         header_banner = f"✅ <b>AT MRP ALERT (MRP: ₹{expected_mrp:.0f})</b> ✅"
         mrp_status = "At MRP"
 
-    if "amazon.in" in store.lower() or "amazon" in link:
-        asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", link)
-        if asin_match:
-            asin = asin_match.group(1)
-            final_link = f"https://www.amazon.in/dp/{asin}"
-            if AMAZON_AFFILIATE_TAG:
-                final_link += f"?tag={AMAZON_AFFILIATE_TAG}"
-            link_display_text = f"https://link.amazon/{asin}"
-        else:
-            final_link = convert_to_affiliate_link(link)
-            link_display_text = "https://link.amazon/deal"
-    else:
-        final_link = convert_to_affiliate_link(link)
-        link_display_text = "🔗 link.firstcry" if "firstcry" in store.lower() else f"🔗 link.{store.lower().replace(' ', '')}"
-
-    formatted_link = f'<a href="{final_link}">{link_display_text}</a>'
-
-    inline_ship = ""
-    if delivery and delivery.upper() != "FREE":
-        inline_ship = f" (+ {html.escape(str(delivery))} Ship)"
+    final_link = convert_to_affiliate_link(link)
+    formatted_link = f'<a href="{final_link}">🔗 link.firstcry</a>'
 
     caption_lines = [
         header_banner,
         "",
-        f"🚨 <b>{clean_title} @ ₹{price:.0f}{inline_ship} [{safe_store}]</b>",
+        f"🚨 <b>{clean_title} @ ₹{price:.0f} [{safe_store}]</b>",
         formatted_link
     ]
-
-    if delivery:
-        safe_delivery = html.escape(str(delivery))
-        caption_lines.append(f"🚚 <b>Delivery:</b> {safe_delivery}")
 
     if coupon:
         safe_coupon = html.escape(str(coupon))
         caption_lines.append(f"\n📍 <b>Coupon:</b> <code>{safe_coupon}</code>")
 
-    if "firstcry" in store.lower():
-        caption_lines.append(
-            "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
-            "Profile → Recently Viewed, and click Add to Cart from there!"
-        )
-
-    caption_lines.append("\n🚨 Share with your collector buddies!")
+    caption_lines.append(
+        "\n💡 Showing \"Out of Stock\"? Just open the link, head to your "
+        "Profile → Recently Viewed, and click Add to Cart from there!"
+    )
+    caption_lines.append("\n🚨 Happy Hunting!")
     caption = "\n".join(caption_lines)
 
     try:
@@ -717,7 +564,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
                 data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                 r = requests.post(api_url, data=data, files=files, timeout=20)
                 if r.status_code == 200:
-                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Delivery: {delivery} | Coupon: {coupon})", flush=True)
+                    print(f"   📸 Sent Screenshot [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
                     return
 
         api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -729,16 +576,17 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
         }
         r = requests.post(api_url, json=payload, timeout=10)
         if r.status_code == 200:
-            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Delivery: {delivery} | Coupon: {coupon})", flush=True)
+            print(f"   ✅ Sent Text [{store}]: {clean_title[:35]} @ ₹{price:.0f} ({mrp_status} | Coupon: {coupon})", flush=True)
     except Exception as e:
         print(f"   ⚠️ Telegram connection error: {e}", flush=True)
 
 
 def scrape_deals():
-    print("🚀 Starting Complete All-Lines Deal Scraper (with Restock Tracker)...", flush=True)
+    print("🚀 Starting Dedicated High-Speed FirstCry Sniper (Hot Wheels, Matchbox, Majorette)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
+    probed_oos_urls_this_run = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -753,199 +601,77 @@ def scrape_deals():
 
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 1400},
+            viewport={"width": 1366, "height": 900},
             locale="en-IN",
             timezone_id="Asia/Kolkata"
         )
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
-        try:
-            page.goto("https://www.amazon.in/", timeout=30000, wait_until="domcontentloaded")
-            time.sleep(1.5)
-        except Exception:
-            pass
-
         for target in TARGET_URLS:
             store = target["store"]
             url = target["url"]
-            max_pages = target.get("pages", 1)
+            num_scrolls = target.get("scrolls", 3)
             print(f"\n-> Scanning {store} ({url})...", flush=True)
 
             try:
-                if "amazon" in store.lower():
-                    for amz_page in range(1, max_pages + 1):
-                        paged_url = f"{url}&page={amz_page}" if "?" in url else f"{url}?page={amz_page}"
-                        if max_pages > 1:
-                            print(f"   -> Amazon Page {amz_page}/{max_pages}: {paged_url}", flush=True)
+                page.goto(url, timeout=45000, wait_until="domcontentloaded")
+                time.sleep(1.8)
+                for _ in range(num_scrolls):
+                    page.evaluate("window.scrollBy(0, 1500)")
+                    time.sleep(0.7)
 
-                        page.goto(paged_url, timeout=45000, wait_until="domcontentloaded", referer="https://www.amazon.in/")
-                        time.sleep(2.5)
+                product_elements = page.locator("div.list_block")
+                if product_elements.count() == 0:
+                    product_elements = page.locator("div.lft.list_cel, li.child_block")
+                count = product_elements.count()
+                print(f"   Found {count} product cards on FirstCry.", flush=True)
 
-                        page.add_style_tag(content="#navbar-main, #nav-belt, .s-Quantities-bar, .a-sticky-top { position: static !important; }")
+                for i in range(count):
+                    try:
+                        card = product_elements.nth(i)
+                        card_text = card.inner_text()
+                        if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
+                            continue
 
-                        for _ in range(2):
-                            page.evaluate("window.scrollBy(0, 1800)")
-                            time.sleep(0.8)
+                        link_el = card.locator("a[href*='hot-wheels'], a[href*='matchbox'], a[href*='majorette'], a[href*='product-detail']").first
+                        if link_el.count() == 0:
+                            link_el = card.locator("a[href]").first
+                        if link_el.count() == 0:
+                            continue
+                        raw_href = link_el.get_attribute("href")
+                        clean_link = normalize_and_clean_url(raw_href, "https://www.firstcry.com")
 
-                        product_elements = page.locator("div[data-component-type='s-search-result']")
-                        count = product_elements.count()
-                        print(f"      Found {count} product cards on Amazon (Page {amz_page}).", flush=True)
-                        if count == 0:
-                            break
+                        fc_id_match = re.search(r"/(\d{5,12})/product-detail", clean_link)
+                        if fc_id_match:
+                            deal_key = f"fc_{fc_id_match.group(1)}"
+                        else:
+                            deal_key = clean_link.split("?")[0].rstrip("/")
 
-                        for i in range(count):
-                            try:
-                                card = product_elements.nth(i)
-                                asin = card.get_attribute("data-asin")
-                                if not asin:
-                                    continue
+                        title_text = link_el.get_attribute("title") or ""
+                        if not title_text:
+                            title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
+                            title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
 
-                                card_text = card.inner_text()
-                                if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
-                                    continue
+                        title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
 
-                                h2_texts = [t.strip() for t in card.locator("h2").all_inner_texts() if t.strip()]
-                                if len(h2_texts) >= 2:
-                                    if h2_texts[0].lower() in h2_texts[1].lower():
-                                        title_text = h2_texts[1]
-                                    else:
-                                        title_text = f"{h2_texts[0]} {h2_texts[1]}"
-                                elif len(h2_texts) == 1:
-                                    title_text = h2_texts[0]
-                                else:
-                                    title_text = card_text.split("\n")[0]
+                        price = 0.0
+                        scraped_mrp = None
 
-                                if not any(b in title_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
-                                    if "matchbox" in card_text.lower():
-                                        title_text = f"Matchbox {title_text}"
-                                    elif "majorette" in card_text.lower():
-                                        title_text = f"Majorette {title_text}"
-                                    else:
-                                        title_text = f"Hot Wheels {title_text}"
+                        # LIVE-STOCK SNIPER FOR ALL FIRSTCRY PRODUCTS:
+                        # Even if FirstCry's cached search card says "Out of Stock" / "Notify Me", probe the live PDP via fast HTTP!
+                        is_card_oos = any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"])
+                        if is_card_oos:
+                            if clean_link not in probed_oos_urls_this_run:
+                                probed_oos_urls_this_run.add(clean_link)
+                                is_live, live_p, live_m = check_firstcry_live_stock_fast(clean_link)
+                                if is_live:
+                                    print(f"   ⚡ [LIVE PDP RESTOCK CAUGHT BEFORE SEARCH CACHE!] {clean_product_title(title_text)[:40]}", flush=True)
+                                    price = live_p
+                                    scraped_mrp = live_m
+                                    is_card_oos = False
 
-                                amz_title_key = f"amz_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
-
-                                # RESTOCK TRACKER 1 (Amazon OOS)
-                                if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "currently unavailable"]):
-                                    if asin in seen_deals or amz_title_key in seen_deals:
-                                        seen_deals.discard(asin)
-                                        seen_deals.discard(amz_title_key)
-                                        cache_dirty = True
-                                        print(f"   🔄 [Amazon OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:35]}", flush=True)
-                                    continue
-
-                                price_elem = card.locator(".a-price-whole").first
-                                if price_elem.count() == 0:
-                                    if asin in seen_deals or amz_title_key in seen_deals:
-                                        seen_deals.discard(asin)
-                                        seen_deals.discard(amz_title_key)
-                                        cache_dirty = True
-                                    continue
-
-                                price_str = re.sub(r"[^\d.]", "", price_elem.inner_text()).rstrip(".")
-                                if not price_str:
-                                    continue
-                                price = float(price_str)
-
-                                scraped_mrp = None
-                                mrp_match = re.search(r"M\.?R\.?P\.?\s*:?\s*₹?\s*([1-9][0-9,]{1,5})", card_text, re.I)
-                                if mrp_match:
-                                    try:
-                                        scraped_mrp = float(mrp_match.group(1).replace(",", ""))
-                                    except Exception:
-                                        scraped_mrp = None
-
-                                brand = determine_brand(title_text)
-                                is_valid_mrp, expected_mrp = classify_and_check_mrp(
-                                    brand, title_text, price, scraped_mrp=scraped_mrp, store=store
-                                )
-
-                                # RESTOCK TRACKER 2 (Amazon Price Jump > MRP)
-                                if not is_valid_mrp:
-                                    if asin in seen_deals or amz_title_key in seen_deals:
-                                        seen_deals.discard(asin)
-                                        seen_deals.discard(amz_title_key)
-                                        cache_dirty = True
-                                        print(f"   🔄 [Amazon Price > MRP] Cleared from cache for future price drop: {clean_product_title(title_text)[:35]}", flush=True)
-                                    continue
-
-                                if asin in seen_deals or amz_title_key in seen_deals:
-                                    continue
-
-                                coupon = extract_amazon_coupon(card_text)
-                                delivery = extract_amazon_delivery(card_text)
-
-                                inner_box = card.locator(".s-card-container").first
-                                target_shot = inner_box if inner_box.count() > 0 else card
-
-                                img_path = f"temp_deal_{asin}.png"
-                                capture_square_amazon_card(page, target_shot, img_path)
-
-                                seen_deals.add(asin)
-                                seen_deals.add(amz_title_key)
-                                save_seen_deals(seen_deals)
-
-                                clean_link = f"https://www.amazon.in/dp/{asin}"
-                                send_telegram_deal(
-                                    store, title_text, price, expected_mrp, clean_link,
-                                    image_path=img_path, coupon=coupon, delivery=delivery
-                                )
-
-                                if os.path.exists(img_path):
-                                    os.remove(img_path)
-
-                                new_seen_count += 1
-                                time.sleep(1)
-                            except Exception:
-                                continue
-
-                elif "firstcry" in store.lower():
-                    page.goto(url, timeout=45000, wait_until="domcontentloaded")
-                    time.sleep(3)
-                    for _ in range(4):
-                        page.evaluate("window.scrollBy(0, 1400)")
-                        time.sleep(1.2)
-
-                    product_elements = page.locator("div.list_block")
-                    if product_elements.count() == 0:
-                        product_elements = page.locator("div.lft.list_cel, li.child_block")
-                    count = product_elements.count()
-                    print(f"   Found {count} product cards on FirstCry.", flush=True)
-
-                    for i in range(count):
-                        try:
-                            card = product_elements.nth(i)
-                            card.scroll_into_view_if_needed()
-                            time.sleep(0.25)
-
-                            card_text = card.inner_text()
-                            if not any(b in card_text.lower() for b in ["hot wheels", "matchbox", "majorette"]):
-                                continue
-
-                            link_el = card.locator("a[href*='hot-wheels'], a[href*='matchbox'], a[href*='majorette'], a[href*='product-detail']").first
-                            if link_el.count() == 0:
-                                link_el = card.locator("a[href]").first
-                            if link_el.count() == 0:
-                                continue
-                            raw_href = link_el.get_attribute("href")
-                            clean_link = normalize_and_clean_url(raw_href, "https://www.firstcry.com")
-
-                            fc_id_match = re.search(r"/(\d{5,12})/product-detail", clean_link)
-                            if fc_id_match:
-                                deal_key = f"fc_{fc_id_match.group(1)}"
-                            else:
-                                deal_key = clean_link.split("?")[0].rstrip("/")
-
-                            title_text = link_el.get_attribute("title") or ""
-                            if not title_text:
-                                title_el = card.locator(".li_txt1, .p_list_text, .list_title").first
-                                title_text = title_el.inner_text().strip() if title_el.count() > 0 else card_text.split("\n")[0]
-
-                            title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
-
-                            # RESTOCK TRACKER (FirstCry OOS)
-                            if any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"]):
+                            if is_card_oos:
                                 if deal_key in seen_deals or title_key in seen_deals:
                                     seen_deals.discard(deal_key)
                                     seen_deals.discard(title_key)
@@ -953,12 +679,13 @@ def scrape_deals():
                                     print(f"   🔄 [FirstCry OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:35]}", flush=True)
                                 continue
 
-                            if not deal_key or deal_key in seen_deals or title_key in seen_deals:
-                                continue
+                        if not deal_key or deal_key in seen_deals or title_key in seen_deals:
+                            continue
 
-                            price = 0.0
-                            scraped_mrp = None
+                        card.scroll_into_view_if_needed()
+                        time.sleep(0.2)
 
+                        if price <= 40:
                             sp_el = card.locator(".r1, .rupee, .club_price, .sp_amt").first
                             mrp_card_el = card.locator(".r2, del, strike, .mrp_amt").first
                             if mrp_card_el.count() > 0:
@@ -994,42 +721,42 @@ def scrape_deals():
                             elif pm_plain:
                                 price = float(pm_plain.group(1))
 
-                            if price <= 40:
-                                continue
-
-                            brand = determine_brand(title_text)
-                            _, expected_mrp = classify_and_check_mrp(brand, title_text, price, scraped_mrp=scraped_mrp, store=store)
-                            if not expected_mrp:
-                                continue
-
-                            coupon, final_price, pdp_mrp, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
-                            if pdp_mrp and pdp_mrp >= 150:
-                                expected_mrp = pdp_mrp
-
-                            if final_price > expected_mrp:
-                                if pdp_img_path and os.path.exists(pdp_img_path):
-                                    os.remove(pdp_img_path)
-                                continue
-
-                            if pdp_img_path and os.path.exists(pdp_img_path):
-                                img_path = pdp_img_path
-                            else:
-                                img_path = f"temp_fc_{i}.png"
-                                card.screenshot(path=img_path)
-
-                            seen_deals.add(deal_key)
-                            seen_deals.add(title_key)
-                            save_seen_deals(seen_deals)
-
-                            send_telegram_deal(store, title_text, final_price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
-
-                            if os.path.exists(img_path):
-                                os.remove(img_path)
-
-                            new_seen_count += 1
-                            time.sleep(1)
-                        except Exception:
+                        if price <= 40:
                             continue
+
+                        brand = determine_brand(title_text)
+                        _, expected_mrp = classify_and_check_mrp(brand, title_text, price, scraped_mrp=scraped_mrp)
+                        if not expected_mrp:
+                            continue
+
+                        coupon, final_price, pdp_mrp, pdp_img_path = extract_firstcry_pdp_details(context, clean_link, price, expected_mrp)
+                        if pdp_mrp and pdp_mrp >= 150:
+                            expected_mrp = pdp_mrp
+
+                        if final_price > expected_mrp:
+                            if pdp_img_path and os.path.exists(pdp_img_path):
+                                os.remove(pdp_img_path)
+                            continue
+
+                        if pdp_img_path and os.path.exists(pdp_img_path):
+                            img_path = pdp_img_path
+                        else:
+                            img_path = f"temp_fc_{i}.png"
+                            card.screenshot(path=img_path)
+
+                        seen_deals.add(deal_key)
+                        seen_deals.add(title_key)
+                        save_seen_deals(seen_deals)
+
+                        send_telegram_deal(store, title_text, final_price, expected_mrp, clean_link, image_path=img_path, coupon=coupon)
+
+                        if os.path.exists(img_path):
+                            os.remove(img_path)
+
+                        new_seen_count += 1
+                        time.sleep(0.6)
+                    except Exception:
+                        continue
 
             except Exception as e:
                 print(f"⚠️ Error scraping {store}: {e}", flush=True)
@@ -1038,7 +765,7 @@ def scrape_deals():
 
     if cache_dirty or new_seen_count > 0:
         save_seen_deals(seen_deals)
-    print(f"\n🏁 Deal scan complete. Added {new_seen_count} new/restocked deals to cache.", flush=True)
+    print(f"\n🏁 FirstCry scan complete. Added {new_seen_count} new/restocked deals to cache.", flush=True)
 
 
 if __name__ == "__main__":
