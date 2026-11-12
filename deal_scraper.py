@@ -18,6 +18,17 @@ CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
 
 CACHE_FILE = "seen_deals.json"
 
+# Major FirstCry fulfillment hubs to defeat Global Phantom Stock (South Hub, West Hub, Local Kerala)
+PRIMARY_PINCODE = "560001"
+FALLBACK_PINCODE = "400001"
+
+UNSERVICEABLE_REGEX = re.compile(
+    r"cannot\s+be\s+delivered|not\s+deliverable|undeliverable|"
+    r"currently\s+out\s+of\s+stock\s+in\s+your\s+area|not\s+serviceable|"
+    r"\"isdeliverable\"\s*:\s*false|\"deliverable\"\s*:\s*false",
+    re.I
+)
+
 # Persistent 25-connection pool for ultra-fast parallel FirstCry PDP probes
 HTTP_SESSION = requests.Session()
 adapter = requests.adapters.HTTPAdapter(pool_connections=25, pool_maxsize=25)
@@ -28,6 +39,13 @@ HTTP_SESSION.headers.update({
     "Accept-Language": "en-IN,en;q=0.9",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache"
+})
+# Pre-inject primary hub pincode cookies into HTTP session
+HTTP_SESSION.cookies.update({
+    "fc_pincode": PRIMARY_PINCODE,
+    "pincode": PRIMARY_PINCODE,
+    "usr_pincode": PRIMARY_PINCODE,
+    "DelPincode": PRIMARY_PINCODE
 })
 
 # Official Indian Retail MRP Rules (Monster Trucks, Bikes, Planes & Helicopters excluded)
@@ -76,7 +94,7 @@ PRIORITY_KEYWORDS = [
     "corvette", "forza", "segundo", "el segundo", "vintage racing", "pagani",
     "chevy", "chevrolet", "mazda", "honda", "lincoln", "mitsubishi", "road trip",
     "oracle red bull", "red bull", "dodge", "ford", "lotus", "subaru", "pontiac",
-    "williams", "formula 1", "f1"
+    "williams", "formula 1", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r"
 ]
 
 # STREAMLINED, ZERO-DUPLICATE TARGET URLS (Completes full scan in ~45 seconds!)
@@ -322,8 +340,8 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
 
 def check_firstcry_live_stock_fast(product_url):
     """
-    Ultra-fast (~0.12s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache.
-    Uses fast regex instead of slow full-page BeautifulSoup parsing on sold-out pages!
+    Ultra-fast (~0.12s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache
+    and rejects Global Phantom Stock using pre-injected hub pincode cookies.
     """
     try:
         probe_url = f"{product_url}?_ts={int(time.time() * 1000)}"
@@ -332,8 +350,11 @@ def check_firstcry_live_stock_fast(product_url):
             return False, 0.0, None
         html_text = r.text
 
-        # Fast rejection if explicitly Out of Stock in JS state
+        # Fast rejection if explicitly Out of Stock or Undeliverable in JS/HTML state
         if re.search(r'"isOutOfStock"\s*:\s*true|"StockStatus"\s*:\s*"Out\s*of\s*Stock"|Currently\s+Out\s+of\s+Stock', html_text, re.I):
+            return False, 0.0, None
+
+        if UNSERVICEABLE_REGEX.search(html_text):
             return False, 0.0, None
 
         if "ADD TO CART" not in html_text.upper():
@@ -370,6 +391,9 @@ def check_firstcry_live_stock_fast(product_url):
             return False, 0.0, None
 
         body_text = soup.get_text(" ", strip=True)
+        if UNSERVICEABLE_REGEX.search(body_text):
+            return False, 0.0, None
+
         live_mrp = None
         mrp_m = re.search(r"MRP\s*[:\-]?\s*₹?\s*([1-9][0-9]{2,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
         if mrp_m:
@@ -394,6 +418,82 @@ def check_firstcry_live_stock_fast(product_url):
     return False, 0.0, None
 
 
+def verify_pdp_pincode_serviceability(pdp_page, product_url):
+    """
+    Tests pincode deliverability directly on the FirstCry PDP DOM.
+    Tests PRIMARY_PINCODE (560001) first; if undeliverable, tests FALLBACK_PINCODE (400001).
+    Returns (is_deliverable, is_phantom_stock).
+    """
+    for test_pin in [PRIMARY_PINCODE, FALLBACK_PINCODE]:
+        try:
+            # First check if page already shows an active pincode delivery status from cookies
+            pin_result = pdp_page.evaluate(
+                """(pin) => {
+                    const input = document.querySelector(
+                        "input#nonlpincode, input#pincode, input[placeholder*='Pin'], input[placeholder*='pincode'], input[name*='pincode'], input.pincode-input"
+                    );
+                    if (input && input.offsetParent !== null) {
+                        input.value = '';
+                        input.focus();
+                        input.value = pin;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                        const candidates = document.querySelectorAll("span, button, a, div, input[type='button']");
+                        for (const btn of candidates) {
+                            const t = (btn.innerText || btn.value || '').trim().toUpperCase();
+                            if ((t === 'CHECK' || t === 'APPLY' || t === 'CHANGE') && btn.offsetParent !== null) {
+                                btn.click();
+                                return 'CLICKED';
+                            }
+                        }
+                    }
+                    return 'NO_INPUT';
+                }""",
+                test_pin
+            )
+
+            if pin_result == "CLICKED":
+                time.sleep(0.9)
+
+            # Inspect delivery widget / body text for explicit unserviceable error
+            has_unserviceable_err = pdp_page.evaluate(
+                """() => {
+                    const errSelectors = [
+                        '#pin_err', '.pin-err', '.pincode-error', '.err_msg',
+                        '[id*="pin"][id*="err"]', '[class*="undeliverable"]', '[class*="not-deliverable"]'
+                    ];
+                    for (const sel of errSelectors) {
+                        const el = document.querySelector(sel);
+                        if (el && el.offsetParent !== null && el.innerText.trim().length > 0) {
+                            const txt = el.innerText.toLowerCase();
+                            if (txt.includes('cannot be delivered') || txt.includes('not deliverable') || txt.includes('undeliverable') || txt.includes('out of stock') || txt.includes('not serviceable')) {
+                                return true;
+                            }
+                        }
+                    }
+                    const bodyTxt = document.body.innerText.toLowerCase();
+                    if (
+                        bodyTxt.includes('cannot be delivered to') ||
+                        bodyTxt.includes('not deliverable to') ||
+                        bodyTxt.includes('product is undeliverable') ||
+                        bodyTxt.includes('currently out of stock in your area')
+                    ) {
+                        return true;
+                    }
+                    return false;
+                }"""
+            )
+
+            if not has_unserviceable_err:
+                return True, False
+
+        except Exception:
+            return True, False
+
+    print(f"   🚫 [PHANTOM STOCK BLOCKED - Undeliverable to {PRIMARY_PINCODE} & {FALLBACK_PINCODE}]: {product_url}", flush=True)
+    return False, True
+
+
 def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
     pdp_page = context.new_page()
     coupon_code = None
@@ -401,6 +501,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     pdp_mrp = expected_mrp
     screenshot_path = None
     is_buyable = True
+    is_phantom = False
     stock_left_str = None
 
     try:
@@ -432,7 +533,9 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                         txt === 'OUT OF STOCK' ||
                         txt === 'CURRENTLY OUT OF STOCK' ||
                         txt === 'SOLD OUT' ||
-                        txt.includes('NOTIFY ME WHEN AVAILABLE')
+                        txt === 'UNDELIVERABLE' ||
+                        txt.includes('NOTIFY ME WHEN AVAILABLE') ||
+                        txt.includes('CANNOT BE DELIVERED')
                     ) {
                         if (el.children.length <= 2) {
                             hasVisibleOutOfStock = true;
@@ -445,7 +548,12 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
 
         if buyability_status.get("hasVisibleOutOfStock") or not buyability_status.get("hasVisibleAddToCart"):
             print(f"   🛑 [Aborted Alert - PDP is Out of Stock / Notify Me]: {product_url}", flush=True)
-            return False, None, best_price, pdp_mrp, None, None
+            return False, False, None, best_price, pdp_mrp, None, None
+
+        # Verify Pincode Serviceability to block Global Phantom Stock (e.g., 5 Left but Undeliverable everywhere)
+        is_deliverable, is_phantom = verify_pdp_pincode_serviceability(pdp_page, product_url)
+        if not is_deliverable:
+            return False, is_phantom, None, best_price, pdp_mrp, None, None
 
         pdp_page.evaluate("window.scrollBy(0, 650)")
         time.sleep(0.5)
@@ -563,7 +671,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     finally:
         pdp_page.close()
 
-    return is_buyable, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str
+    return is_buyable, is_phantom, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str
 
 
 def normalize_and_clean_url(raw_url, domain_prefix="https://www.firstcry.com"):
@@ -685,7 +793,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 def scrape_deals():
     start_ts = time.time()
-    print("🚀 Starting Ultra-Fast FirstCry Sniper (JS Batch Extractor + 20-Thread Probe)...", flush=True)
+    print("🚀 Starting Ultra-Fast FirstCry Sniper (JS Batch Extractor + 20-Thread Probe + Pincode Check)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -710,6 +818,15 @@ def scrape_deals():
             timezone_id="Asia/Kolkata"
         )
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        # Pre-inject primary hub pincode cookies into Playwright browser context
+        context.add_cookies([
+            {"name": "fc_pincode", "value": PRIMARY_PINCODE, "domain": ".firstcry.com", "path": "/"},
+            {"name": "pincode", "value": PRIMARY_PINCODE, "domain": ".firstcry.com", "path": "/"},
+            {"name": "usr_pincode", "value": PRIMARY_PINCODE, "domain": ".firstcry.com", "path": "/"},
+            {"name": "DelPincode", "value": PRIMARY_PINCODE, "domain": ".firstcry.com", "path": "/"},
+        ])
+
         page = context.new_page()
 
         for target in TARGET_URLS:
@@ -791,7 +908,7 @@ def scrape_deals():
                         card_left_m = re.search(r"\b([1-9][0-9]?)\s*Left\b", card_text, re.I)
                         card_stock_left = f"Only {card_left_m.group(1)} Left!" if card_left_m else None
 
-                        is_card_oos = any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out"])
+                        is_card_oos = any(oos in card_text.lower() for oos in ["notify me", "out of stock", "sold out", "undeliverable"])
                         if is_card_oos:
                             if clean_link not in probed_oos_urls_this_run:
                                 probed_oos_urls_this_run.add(clean_link)
@@ -923,14 +1040,19 @@ def scrape_deals():
                         if not expected_mrp:
                             continue
 
-                        is_buyable, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
+                        is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
                             context, clean_link, price, expected_mrp
                         )
 
                         if not is_buyable:
                             if pdp_img_path and os.path.exists(pdp_img_path):
                                 os.remove(pdp_img_path)
-                            if deal_key in seen_deals or title_key in seen_deals:
+                            if is_phantom:
+                                # Lock phantom stock into seen_deals so we don't waste time re-opening its PDP every 15 mins
+                                seen_deals.add(deal_key)
+                                seen_deals.add(title_key)
+                                cache_dirty = True
+                            elif deal_key in seen_deals or title_key in seen_deals:
                                 seen_deals.discard(deal_key)
                                 seen_deals.discard(title_key)
                                 cache_dirty = True
