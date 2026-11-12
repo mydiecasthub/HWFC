@@ -16,22 +16,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+
+      - name: Cache Pip and Playwright Chromium
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ubuntu24-py311-playwright-v1
 
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install playwright requests beautifulsoup4 lxml; fi
-
-      - name: Cache Playwright Chromium browser
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-ubuntu24-playwright-chromium-v1
+          pip install playwright requests beautifulsoup4 lxml
 
       - name: Install Playwright Chromium (only on cache miss)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: playwright install chromium
 
       - name: Run FirstCry Deal Scraper
