@@ -3,6 +3,9 @@ name: FirstCry Deal Sniper
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   scrape:
     runs-on: ubuntu-24.04
@@ -40,3 +43,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CUELINKS_API_KEY: ${{ secrets.CUELINKS_API_KEY }}
         run: python deal_scraper.py
+
+      - name: Save and Commit seen_deals.json Cache
+        if: always()
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          if [ -f seen_deals.json ]; then
+            git add seen_deals.json
+            git diff --staged --quiet || (git pull --rebase origin main && git commit -m "Update seen_deals.json cache [skip ci]" && git push)
+          fi
