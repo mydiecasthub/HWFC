@@ -98,18 +98,17 @@ PRIORITY_KEYWORDS = [
 ]
 
 # STREAMLINED, ZERO-DUPLICATE TARGET URLS
+# STREAMLINED, ZERO-DUPLICATE TARGET URLS
 TARGET_URLS = [
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 4},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20Team%20f1", "scrolls": 3},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20alpine", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20Team%20f1", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 6},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 5},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 5},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 5},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20silver", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 5},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox", "scrolls": 4},
 ]
 
