@@ -94,13 +94,17 @@ PRIORITY_KEYWORDS = [
     "corvette", "forza", "segundo", "el segundo", "vintage racing", "pagani",
     "chevy", "chevrolet", "mazda", "honda", "lincoln", "mitsubishi", "road trip",
     "oracle red bull", "red bull", "dodge", "ford", "lotus", "subaru", "pontiac",
-    "williams", "formula 1", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r"
+    "williams", "formula", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r"
 ]
 
-# STREAMLINED, ZERO-DUPLICATE TARGET URLS (Completes full scan in ~45 seconds!)
+# STREAMLINED, ZERO-DUPLICATE TARGET URLS
 TARGET_URLS = [
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula%20ferrari%20williams%20alpine", "scrolls": 2},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20f1", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20alpine", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 5},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 5},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 5},
