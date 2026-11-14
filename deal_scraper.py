@@ -97,7 +97,18 @@ PRIORITY_KEYWORDS = [
     "williams", "formula", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r"
 ]
 
-# STREAMLINED, ZERO-DUPLICATE TARGET URLS
+# DIRECT VIP PRODUCT URLS: Probed in parallel BEFORE search pages so unlisted/ghost restocks are caught in 0.2s!
+# You can add any new high-demand FirstCry product URLs to this list at any time.
+VIP_DIRECT_URLS = [
+    {
+        "title": "Hot Wheels Ferrari Free Wheel Model Diecast Toy Cars Pack of 5",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-free-wheel-model-with-smooth-rolling-wheels-diecast-toy-cars-pack-of-5-multicolor/23033009/product-detail"
+    },
+    {
+        "title": "Hot Wheels Premium BWT Alpine Formula One Team F1 Team Car",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-bwt-alpine-formula-one-team-f1-team-car/19363241/product-detail"
+    },
+]
 # STREAMLINED, ZERO-DUPLICATE TARGET URLS
 TARGET_URLS = [
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 4},
