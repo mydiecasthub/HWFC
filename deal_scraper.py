@@ -172,10 +172,10 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
     t = re.sub(r'[®™©–—/|]', ' ', title.lower())
     t = re.sub(r'\s+', ' ', t).strip()
 
-    # 1. STRICT BLOCK: MONSTER TRUCKS, BIKES, PLANES & HELICOPTERS
+    # 1. STRICT BLOCK: MONSTER TRUCKS, TRUCK PACKS, BIKES, PLANES & HELICOPTERS
     if re.search(
-        r'\b(monster\s*truck|monster\s*trucks|big\s*rig|big\s*rigs|monster\s*mover|monster\s*rockerz|'
-        r'rhinomite|mega\s*wrex|demo\s*derby|monster\s*jam|'
+        r'\b(monster\s*truck|monster\s*trucks|monster|truck|trucks|big\s*rig|big\s*rigs|monster\s*mover|monster\s*rockerz|'
+        r'rhinomite|mega\s*wrex|demo\s*derby|demolition|monster\s*jam|'
         r'bike|bikes|motorcycle|motorbike|ducati|harley|vespa|scrambler|superbike|dirt\s*bike|motocross|bmx|scooter|'
         r'plane|planes|aeroplane|airplane|aircraft|fighter\s*jet|helicopter|chopper|sky\s*busters|skybusters|'
         r'airbus|boeing|propeller|aviation|biplane|seaplane|water\s*bomber)\b',
