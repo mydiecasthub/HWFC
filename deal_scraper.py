@@ -101,6 +101,8 @@ PRIORITY_KEYWORDS = [
 # STREAMLINED, ZERO-DUPLICATE TARGET URLS
 TARGET_URLS = [
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20deutschland", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20Team%20f1", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20silver", "scrolls": 4},
