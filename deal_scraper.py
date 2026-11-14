@@ -25,8 +25,7 @@ NORTH_PINCODE = "110001"
 
 UNSERVICEABLE_REGEX = re.compile(
     r"cannot\s+be\s+delivered|not\s+deliverable|undeliverable|"
-    r"currently\s+out\s+of\s+stock\s+in\s+your\s+area|not\s+serviceable|"
-    r"\"isdeliverable\"\s*:\s*false|\"deliverable\"\s*:\s*false",
+    r"currently\s+out\s+of\s+stock\s+in\s+your\s+area|not\s+serviceable",
     re.I
 )
 
@@ -41,7 +40,6 @@ HTTP_SESSION.headers.update({
     "Cache-Control": "no-cache",
     "Pragma": "no-cache"
 })
-# Pre-inject primary hub pincode cookies into HTTP session
 HTTP_SESSION.cookies.update({
     "fc_pincode": PRIMARY_PINCODE,
     "pincode": PRIMARY_PINCODE,
@@ -99,8 +97,8 @@ PRIORITY_KEYWORDS = [
     "deutschland"
 ]
 
-# DIRECT VIP PRODUCT URLS: Probed in parallel BEFORE search pages so unlisted/ghost restocks are caught in 0.2s
-# Paste any high-demand FirstCry product URLs here (Ferrari 5-Pack, F1 cars, Car Culture, etc.)
+# DIRECT VIP PRODUCT URLS: Verified via real Playwright DOM + Color Variant expansion before search pages!
+# You can paste full FirstCry URLs OR fclinks.firstcry.com mobile share links here.
 VIP_DIRECT_URLS = [
     {
         "title": "Hot Wheels Ferrari Free Wheel Model With Smooth Rolling Wheels Diecast Toy Cars Pack of 5 - Multicolor",
@@ -361,37 +359,25 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
 
 def check_firstcry_live_stock_fast(product_url):
     """
-    Ultra-fast (~0.12s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache
-    and rejects Global Phantom Stock using pre-injected hub pincode cookies.
+    Ultra-fast (~0.12s) HTTP probe that bypasses FirstCry's 15-minute Search CDN cache.
+    Fixed so sibling Color Swatch OOS JSON or external-CSS Notify modals never cause false negatives.
     """
     try:
         probe_url = f"{product_url}?_ts={int(time.time() * 1000)}"
-        r = HTTP_SESSION.get(probe_url, timeout=2.8)
+        r = HTTP_SESSION.get(probe_url, timeout=3.2)
         if r.status_code != 200:
             return False, 0.0, None
         html_text = r.text
 
-        if re.search(r'"isOutOfStock"\s*:\s*true|"StockStatus"\s*:\s*"Out\s*of\s*Stock"|Currently\s+Out\s+of\s+Stock', html_text, re.I):
-            return False, 0.0, None
-
-        if UNSERVICEABLE_REGEX.search(html_text):
-            return False, 0.0, None
-
-        if "ADD TO CART" not in html_text.upper():
+        if "ADD TO CART" not in html_text.upper() and "GO TO CART" not in html_text.upper():
             return False, 0.0, None
 
         soup = BeautifulSoup(html_text, "html.parser")
 
-        for el in soup.find_all(attrs={"id": re.compile(r"notify|oos|outofstock", re.I)}):
-            style = (el.get("style") or "").lower().replace(" ", "")
-            cls = " ".join(el.get("class") or []).lower()
-            if "display:none" not in style and "dn" not in cls and "hide" not in cls:
-                return False, 0.0, None
-
         has_active_atc = False
         for el in soup.find_all(["div", "span", "button", "a"]):
             txt = (el.get_text(" ", strip=True) or "").upper()
-            if txt == "ADD TO CART":
+            if txt in ("ADD TO CART", "GO TO CART"):
                 curr = el
                 hidden = False
                 for _ in range(4):
@@ -420,7 +406,7 @@ def check_firstcry_live_stock_fast(product_url):
             live_mrp = float(mrp_m.group(1))
 
         live_price = 0.0
-        club_m = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
+        club_m = re.search(r"Club\s*(?:Price)?\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", body_text, re.I)
         sp_m = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s+MRP", body_text, re.I)
         if club_m:
             live_price = float(club_m.group(1))
@@ -511,7 +497,7 @@ def verify_pdp_pincode_serviceability(pdp_page, product_url):
     return False, True
 
 
-def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp):
+def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_mrp, discover_variants=False):
     pdp_page = context.new_page()
     coupon_code = None
     best_price = fallback_price
@@ -520,10 +506,31 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     is_buyable = True
     is_phantom = False
     stock_left_str = None
+    sibling_urls = []
+    scraped_title = None
 
     try:
         pdp_page.goto(product_url, timeout=25000, wait_until="domcontentloaded")
         time.sleep(1.0)
+
+        # Extract true page title and any Color Swatch variant URLs if requested
+        page_meta = pdp_page.evaluate(
+            """() => {
+                const h1 = document.querySelector('h1, #prod_name, .prod-title, .pdp-title');
+                const title = h1 ? h1.innerText.trim() : document.title.split(' Online')[0].replace(/^Buy\\s+/i, '').trim();
+                const variants = [];
+                document.querySelectorAll('a[href*="product-detail"], [data-url*="product-detail"]').forEach(el => {
+                    const u = el.getAttribute('href') || el.getAttribute('data-url') || '';
+                    if (u && (el.closest('[class*="color"], [id*="color"], [class*="swatch"], [class*="variant"]') || u.includes('pack-of-5'))) {
+                        variants.push(u);
+                    }
+                });
+                return { title, variants };
+            }"""
+        )
+        scraped_title = page_meta.get("title")
+        if discover_variants:
+            sibling_urls = page_meta.get("variants") or []
 
         buyability_status = pdp_page.evaluate(
             """() => {
@@ -542,7 +549,7 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
                 for (const el of elements) {
                     if (!isVisible(el)) continue;
                     const txt = (el.innerText || el.value || '').trim().toUpperCase();
-                    if (txt === 'ADD TO CART' || txt === 'BUY NOW') {
+                    if (txt === 'ADD TO CART' || txt === 'GO TO CART' || txt === 'BUY NOW') {
                         hasVisibleAddToCart = true;
                     }
                     if (
@@ -565,12 +572,12 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
 
         if buyability_status.get("hasVisibleOutOfStock") or not buyability_status.get("hasVisibleAddToCart"):
             print(f"   🛑 [Aborted Alert - PDP is Out of Stock / Notify Me]: {product_url}", flush=True)
-            return False, False, None, best_price, pdp_mrp, None, None
+            return False, False, None, best_price, pdp_mrp, None, None, scraped_title, sibling_urls
 
         # Verify Pincode Serviceability to block Global Phantom Stock (e.g., 5 Left but Undeliverable everywhere)
         is_deliverable, is_phantom = verify_pdp_pincode_serviceability(pdp_page, product_url)
         if not is_deliverable:
-            return False, is_phantom, None, best_price, pdp_mrp, None, None
+            return False, is_phantom, None, best_price, pdp_mrp, None, None, scraped_title, sibling_urls
 
         pdp_page.evaluate("window.scrollBy(0, 650)")
         time.sleep(0.5)
@@ -602,13 +609,25 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
         if scraped_pdp_mrp and scraped_pdp_mrp >= 150:
             pdp_mrp = scraped_pdp_mrp
 
-        club_p_match = re.search(r"Club\s*Price\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
+        # Extract live selling price or Club price from PDP if fallback_price was 0
+        sp_match = re.search(r"₹\s*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)\s*MRP", pdp_text, re.I)
+        if sp_match:
+            sp_val = float(sp_match.group(1))
+            if sp_val > pdp_mrp and sp_val > 10000:
+                sp_val = round(sp_val / 100.0)
+            if 40 < sp_val and (best_price <= 40 or sp_val < best_price):
+                best_price = round(sp_val)
+
+        club_p_match = re.search(r"Club\s*(?:Price)?\s*[:₹Rs.\s]*([1-9][0-9]{1,4}(?:\.[0-9]{1,2})?)", pdp_text, re.I)
         if club_p_match:
             cp_val = float(club_p_match.group(1))
             if cp_val > pdp_mrp and cp_val > 10000:
                 cp_val = round(cp_val / 100.0)
-            if 40 < cp_val < best_price:
+            if 40 < cp_val and (best_price <= 40 or cp_val < best_price):
                 best_price = round(cp_val)
+
+        if best_price <= 40 and pdp_mrp:
+            best_price = pdp_mrp
 
         ignore_words = {
             "FIRSTCRY", "DETAILS", "APPLIED", "COUPON", "OFFERS", "AVAILABLE",
@@ -688,13 +707,20 @@ def extract_firstcry_pdp_details(context, product_url, fallback_price, expected_
     finally:
         pdp_page.close()
 
-    return is_buyable, is_phantom, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str
+    return is_buyable, is_phantom, coupon_code, best_price, pdp_mrp, screenshot_path, stock_left_str, scraped_title, sibling_urls
 
 
 def normalize_and_clean_url(raw_url, domain_prefix="https://www.firstcry.com"):
     if not raw_url:
         return ""
     url = raw_url.strip()
+    if "fclinks.firstcry.com" in url:
+        try:
+            r = HTTP_SESSION.get(url, allow_redirects=True, timeout=6)
+            if r.url and "firstcry.com" in r.url:
+                url = r.url
+        except Exception:
+            pass
     if url.startswith("//"):
         url = "https:" + url
     elif not url.startswith("http"):
@@ -810,7 +836,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 def scrape_deals():
     start_ts = time.time()
-    print("🚀 Starting Ultra-Fast FirstCry Sniper (VIP Watchlist + JS Batch Extractor + 20-Thread Probe)...", flush=True)
+    print("🚀 Starting Ultra-Fast FirstCry Sniper (VIP Playwright Watchlist + JS Batch Extractor + 20-Thread Probe)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -846,43 +872,69 @@ def scrape_deals():
 
         page = context.new_page()
 
-        # --- PHASE 0: INSTANT DIRECT PROBE OF VIP WATCHLIST URLS ---
+        # --- PHASE 0: DIRECT PLAYWRIGHT VERIFICATION OF VIP WATCHLIST + COLOR VARIANTS ---
         if VIP_DIRECT_URLS:
-            print(f"\n⚡ Probing {len(VIP_DIRECT_URLS)} Direct VIP Watchlist URLs...", flush=True)
-            for vip in VIP_DIRECT_URLS:
+            print(f"\n⚡ Checking {len(VIP_DIRECT_URLS)} Direct VIP Watchlist URLs via Playwright DOM...", flush=True)
+            vip_queue = list(VIP_DIRECT_URLS)
+            visited_vip = set()
+
+            while vip_queue:
+                vip = vip_queue.pop(0)
                 try:
                     v_url = normalize_and_clean_url(vip["url"], "https://www.firstcry.com")
-                    if not v_url or v_url in seen_cards_this_run:
+                    if not v_url or v_url in visited_vip:
                         continue
+                    visited_vip.add(v_url)
                     seen_cards_this_run.add(v_url)
+
                     fc_id_m = re.search(r"/(\d{5,12})/product-detail", v_url)
                     deal_key = f"fc_{fc_id_m.group(1)}" if fc_id_m else v_url
-                    title_text = vip["title"]
-                    title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
+                    title_text = vip.get("title") or "Hot Wheels VIP Collector Casting"
+                    brand = determine_brand(title_text)
+                    _, expected_mrp = classify_and_check_mrp(brand, title_text, 179)
+                    if not expected_mrp:
+                        expected_mrp = 899
 
-                    is_live, live_p, live_m = check_firstcry_live_stock_fast(v_url)
-                    if is_live and deal_key not in seen_deals and title_key not in seen_deals:
+                    is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left, dom_title, sibling_urls = extract_firstcry_pdp_details(
+                        context, v_url, 0.0, expected_mrp, discover_variants=True
+                    )
+
+                    if dom_title and len(dom_title) > 8:
+                        title_text = dom_title
                         brand = determine_brand(title_text)
-                        _, expected_mrp = classify_and_check_mrp(brand, title_text, live_p, scraped_mrp=live_m)
-                        if expected_mrp:
-                            is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
-                                context, v_url, live_p, expected_mrp
-                            )
-                            if is_buyable and final_price <= (pdp_mrp or expected_mrp):
+                        _, recalc_mrp = classify_and_check_mrp(brand, title_text, final_price or 179, scraped_mrp=pdp_mrp)
+                        if recalc_mrp:
+                            expected_mrp = recalc_mrp
+
+                    title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}_{deal_key}"
+
+                    # Queue any newly discovered Color Swatch variants from this PDP
+                    for sib in sibling_urls:
+                        sib_clean = normalize_and_clean_url(sib, "https://www.firstcry.com")
+                        if sib_clean and sib_clean not in visited_vip:
+                            vip_queue.append({"title": "", "url": sib_clean})
+
+                    if is_buyable:
+                        if deal_key not in seen_deals and title_key not in seen_deals:
+                            cap_mrp = pdp_mrp or expected_mrp
+                            if final_price <= cap_mrp:
                                 seen_deals.add(deal_key)
                                 seen_deals.add(title_key)
                                 save_seen_deals(seen_deals)
                                 send_telegram_deal(
-                                    "FirstCry", title_text, final_price, pdp_mrp or expected_mrp, v_url,
+                                    "FirstCry", title_text, final_price, cap_mrp, v_url,
                                     image_path=pdp_img_path, coupon=coupon, stock_left=pdp_stock_left
                                 )
-                                if pdp_img_path and os.path.exists(pdp_img_path):
-                                    os.remove(pdp_img_path)
                                 new_seen_count += 1
-                    elif not is_live and (deal_key in seen_deals or title_key in seen_deals):
-                        seen_deals.discard(deal_key)
-                        seen_deals.discard(title_key)
-                        cache_dirty = True
+                    else:
+                        if not is_phantom and (deal_key in seen_deals or title_key in seen_deals):
+                            seen_deals.discard(deal_key)
+                            seen_deals.discard(title_key)
+                            cache_dirty = True
+                            print(f"   🔄 [VIP OOS] Cleared from cache for future restock: {clean_product_title(title_text)[:40]}", flush=True)
+
+                    if pdp_img_path and os.path.exists(pdp_img_path):
+                        os.remove(pdp_img_path)
                 except Exception as e:
                     print(f"   ⚠️ VIP probe warning: {e}", flush=True)
 
@@ -1098,7 +1150,7 @@ def scrape_deals():
                         if not expected_mrp:
                             continue
 
-                        is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
+                        is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left, _, _ = extract_firstcry_pdp_details(
                             context, clean_link, price, expected_mrp
                         )
 
