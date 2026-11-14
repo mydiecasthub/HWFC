@@ -18,9 +18,10 @@ CUELINKS_API_KEY = os.environ.get("CUELINKS_API_KEY", "")
 
 CACHE_FILE = "seen_deals.json"
 
-# Major FirstCry fulfillment hubs to defeat Global Phantom Stock (South Hub, West Hub, Local Kerala)
+# Major FirstCry fulfillment hubs to defeat Global Phantom Stock (South Hub, West Hub, North Hub)
 PRIMARY_PINCODE = "560001"
 FALLBACK_PINCODE = "400001"
+NORTH_PINCODE = "110001"
 
 UNSERVICEABLE_REGEX = re.compile(
     r"cannot\s+be\s+delivered|not\s+deliverable|undeliverable|"
@@ -94,14 +95,15 @@ PRIORITY_KEYWORDS = [
     "corvette", "forza", "segundo", "el segundo", "vintage racing", "pagani",
     "chevy", "chevrolet", "mazda", "honda", "lincoln", "mitsubishi", "road trip",
     "oracle red bull", "red bull", "dodge", "ford", "lotus", "subaru", "pontiac",
-    "williams", "formula", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r"
+    "williams", "formula", "f1", "silvia", "nissan", "skyline", "supra", "gtr", "gt-r",
+    "deutschland"
 ]
 
-# DIRECT VIP PRODUCT URLS: Probed in parallel BEFORE search pages so unlisted/ghost restocks are caught in 0.2s!
-# You can add any new high-demand FirstCry product URLs to this list at any time.
+# DIRECT VIP PRODUCT URLS: Probed in parallel BEFORE search pages so unlisted/ghost restocks are caught in 0.2s
+# Paste any high-demand FirstCry product URLs here (Ferrari 5-Pack, F1 cars, Car Culture, etc.)
 VIP_DIRECT_URLS = [
     {
-        "title": "Hot Wheels Ferrari Free Wheel Model Diecast Toy Cars Pack of 5",
+        "title": "Hot Wheels Ferrari Free Wheel Model With Smooth Rolling Wheels Diecast Toy Cars Pack of 5 - Multicolor",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-free-wheel-model-with-smooth-rolling-wheels-diecast-toy-cars-pack-of-5-multicolor/23033009/product-detail"
     },
     {
@@ -109,19 +111,22 @@ VIP_DIRECT_URLS = [
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-bwt-alpine-formula-one-team-f1-team-car/19363241/product-detail"
     },
 ]
-# STREAMLINED, ZERO-DUPLICATE TARGET URLS
+
+# SPLIT & OPTIMIZED TARGET URLS (Includes Deutschland, F1, Ferrari, Williams, Alpine, Premium & Silver Series)
 TARGET_URLS = [
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20deutschland", "scrolls": 3},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20formula", "scrolls": 4},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20deutschland", "scrolls": 4},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 4},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20Team%20f1", "scrolls": 4},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20f1", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20ferrari", "scrolls": 3},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20williams", "scrolls": 2},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20alpine", "scrolls": 2},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20premium", "scrolls": 6},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20silver", "scrolls": 4},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 6},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 6},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 6},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20250", "scrolls": 5},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%20die%20cast%20free%20wheel", "scrolls": 5},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels", "scrolls": 5},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=hot%20wheels%205%20pack", "scrolls": 3},
-    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 5},
+    {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=majorette", "scrolls": 4},
     {"store": "FirstCry", "url": "https://www.firstcry.com/search?q=matchbox", "scrolls": 4},
 ]
 
@@ -203,7 +208,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         if re.search(r'\b([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|250)\s*/\s*250\b', title):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
         if re.search(r'\b([1-9]|10)\s*/\s*(10|5)\b', title):
-            if not any(s in t for s in ["silver series", "silver label", "car culture", "pop culture", "boulevard", "real riders", "premium", "ultra hots", "neon speeders", "pantone"]):
+            if not any(s in t for s in ["silver series", "silver label", "car culture", "pop culture", "boulevard", "real riders", "premium", "ultra hots", "neon speeders", "pantone", "deutschland"]):
                 return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["mainline"], price, scraped_mrp)
 
     f1_keywords = [
@@ -224,8 +229,8 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         "boulevard", "car culture", "pop culture", "modern classics", "morden classics",
         "terra trek", "world tour", "race day", "japan historics", "exotic envy", "jay leno",
         "spettacolare", "slide street", "drag strip", "ronin run", "mountain drifters", "auto strasse",
-        "forza horizon", "nismo 270r", "kool kombi", "mattel 80th", "replica from popular movie",
-        "road trip"
+        "deutschland", "deutschland design", "forza horizon", "nismo 270r", "kool kombi",
+        "mattel 80th", "replica from popular movie", "road trip"
     ]
 
     if brand == "Hot Wheels":
@@ -235,10 +240,10 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         if any(k in t for k in ["super rig", "super rigs", "heavy doody", "hauling rig", "transporter vehicle with 1"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["super_rig"], price, scraped_mrp)
 
-        if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders"]) and any(p in t for p in ["5-pack", "5 pack", "5-car pack", "5 car pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
+        if any(k in t for k in ["car culture", "premium bundle", "collector bundle", "real riders", "deutschland"]) and any(p in t for p in ["5-pack", "5 pack", "5-car pack", "5 car pack", "5 cars", "bundle", "set of 5", "5 1:64"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["premium_5_pack"], price, scraped_mrp)
 
-        if any(k in t for k in ["5 pack", "5-pack", "5-car pack", "5 car pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars"]) and "silver" not in t and "car culture" not in t and "real riders" not in t:
+        if any(k in t for k in ["5 pack", "5-pack", "5-car pack", "5 car pack", "pack of 5", "5 pcs", "gift pack", "giftpack", "set of 5", "set of 5 toy cars"]) and "silver" not in t and "car culture" not in t and "real riders" not in t and "deutschland" not in t:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["5_pack"], price, scraped_mrp)
 
         if any(k in t for k in ["6-pack", "6 pack", "6-car pack", "pack of 6", "6 cars", "6pc", "6 pcs", "set of 6"]) and any(s in t for s in ["silver", "zamac", "japanese", "european", "streets of japan", "themed", "anniversary", "celebrations", "legends"]):
@@ -247,13 +252,13 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
         if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "set of 2"]) and any(f in t for f in f1_keywords):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["f1_2_pack"], price, scraped_mrp)
 
-        if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings"]):
+        if any(k in t for k in ["2-pack", "2 pack", "2-car pack", "pack of 2", "2 cars", "set of 2"]) and any(p in t for p in ["car culture", "premium", "real riders", "unique pairings", "deutschland"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["car_culture_2_pack"], price, scraped_mrp)
 
         if "color reveal" in t or "colour reveal" in t:
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["color_reveal"], price, scraped_mrp)
 
-        if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack"]):
+        if any(k in t for k in ["diorama", "display set", "premium display", "collector set", "box set", "heritage gift pack", "container set"]):
             return cap_with_scraped_mrp(MRP_RULES["Hot Wheels"]["diorama_or_box_set"], price, scraped_mrp)
 
     elif brand == "Matchbox":
@@ -282,7 +287,7 @@ def classify_and_check_mrp(brand, title, price, scraped_mrp=None):
             if brand == "Hot Wheels":
                 if any(k in t for k in f1_keywords) and "premium" in t and not any(cc in t for cc in car_culture_and_boulevard_keywords):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["f1_premium"]
-                elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie", "road trip"]):
+                elif any(k in t for k in ["car culture", "boulevard", "premium", "pop culture", "real riders", "replica from popular movie", "road trip", "deutschland"]):
                     per_car_mrp = MRP_RULES["Hot Wheels"]["premium_single"]
                 elif any(k in t for k in [
                     "silver series", "silver label", "ultra hots", "neon speeders", "vintage racing",
@@ -366,7 +371,6 @@ def check_firstcry_live_stock_fast(product_url):
             return False, 0.0, None
         html_text = r.text
 
-        # Fast rejection if explicitly Out of Stock or Undeliverable in JS/HTML state
         if re.search(r'"isOutOfStock"\s*:\s*true|"StockStatus"\s*:\s*"Out\s*of\s*Stock"|Currently\s+Out\s+of\s+Stock', html_text, re.I):
             return False, 0.0, None
 
@@ -436,13 +440,11 @@ def check_firstcry_live_stock_fast(product_url):
 
 def verify_pdp_pincode_serviceability(pdp_page, product_url):
     """
-    Tests pincode deliverability directly on the FirstCry PDP DOM.
-    Tests PRIMARY_PINCODE (560001) first; if undeliverable, tests FALLBACK_PINCODE (400001).
+    Tests pincode deliverability directly on the FirstCry PDP DOM across South, West, and North hubs.
     Returns (is_deliverable, is_phantom_stock).
     """
-    for test_pin in [PRIMARY_PINCODE, FALLBACK_PINCODE]:
+    for test_pin in [PRIMARY_PINCODE, FALLBACK_PINCODE, NORTH_PINCODE]:
         try:
-            # First check if page already shows an active pincode delivery status from cookies
             pin_result = pdp_page.evaluate(
                 """(pin) => {
                     const input = document.querySelector(
@@ -471,7 +473,6 @@ def verify_pdp_pincode_serviceability(pdp_page, product_url):
             if pin_result == "CLICKED":
                 time.sleep(0.9)
 
-            # Inspect delivery widget / body text for explicit unserviceable error
             has_unserviceable_err = pdp_page.evaluate(
                 """() => {
                     const errSelectors = [
@@ -506,7 +507,7 @@ def verify_pdp_pincode_serviceability(pdp_page, product_url):
         except Exception:
             return True, False
 
-    print(f"   🚫 [PHANTOM STOCK BLOCKED - Undeliverable to {PRIMARY_PINCODE} & {FALLBACK_PINCODE}]: {product_url}", flush=True)
+    print(f"   🚫 [PHANTOM STOCK BLOCKED - Undeliverable to {PRIMARY_PINCODE}, {FALLBACK_PINCODE} & {NORTH_PINCODE}]: {product_url}", flush=True)
     return False, True
 
 
@@ -809,7 +810,7 @@ def send_telegram_deal(store, title, price, expected_mrp, link, image_path=None,
 
 def scrape_deals():
     start_ts = time.time()
-    print("🚀 Starting Ultra-Fast FirstCry Sniper (JS Batch Extractor + 20-Thread Probe + Pincode Check)...", flush=True)
+    print("🚀 Starting Ultra-Fast FirstCry Sniper (VIP Watchlist + JS Batch Extractor + 20-Thread Probe)...", flush=True)
     seen_deals = load_seen_deals()
     new_seen_count = 0
     cache_dirty = False
@@ -845,6 +846,47 @@ def scrape_deals():
 
         page = context.new_page()
 
+        # --- PHASE 0: INSTANT DIRECT PROBE OF VIP WATCHLIST URLS ---
+        if VIP_DIRECT_URLS:
+            print(f"\n⚡ Probing {len(VIP_DIRECT_URLS)} Direct VIP Watchlist URLs...", flush=True)
+            for vip in VIP_DIRECT_URLS:
+                try:
+                    v_url = normalize_and_clean_url(vip["url"], "https://www.firstcry.com")
+                    if not v_url or v_url in seen_cards_this_run:
+                        continue
+                    seen_cards_this_run.add(v_url)
+                    fc_id_m = re.search(r"/(\d{5,12})/product-detail", v_url)
+                    deal_key = f"fc_{fc_id_m.group(1)}" if fc_id_m else v_url
+                    title_text = vip["title"]
+                    title_key = f"fc_title_{re.sub(r'[^a-z0-9]', '', clean_product_title(title_text).lower())[:65]}"
+
+                    is_live, live_p, live_m = check_firstcry_live_stock_fast(v_url)
+                    if is_live and deal_key not in seen_deals and title_key not in seen_deals:
+                        brand = determine_brand(title_text)
+                        _, expected_mrp = classify_and_check_mrp(brand, title_text, live_p, scraped_mrp=live_m)
+                        if expected_mrp:
+                            is_buyable, is_phantom, coupon, final_price, pdp_mrp, pdp_img_path, pdp_stock_left = extract_firstcry_pdp_details(
+                                context, v_url, live_p, expected_mrp
+                            )
+                            if is_buyable and final_price <= (pdp_mrp or expected_mrp):
+                                seen_deals.add(deal_key)
+                                seen_deals.add(title_key)
+                                save_seen_deals(seen_deals)
+                                send_telegram_deal(
+                                    "FirstCry", title_text, final_price, pdp_mrp or expected_mrp, v_url,
+                                    image_path=pdp_img_path, coupon=coupon, stock_left=pdp_stock_left
+                                )
+                                if pdp_img_path and os.path.exists(pdp_img_path):
+                                    os.remove(pdp_img_path)
+                                new_seen_count += 1
+                    elif not is_live and (deal_key in seen_deals or title_key in seen_deals):
+                        seen_deals.discard(deal_key)
+                        seen_deals.discard(title_key)
+                        cache_dirty = True
+                except Exception as e:
+                    print(f"   ⚠️ VIP probe warning: {e}", flush=True)
+
+        # --- PHASE 1: SEARCH URL SCANNING ---
         for target in TARGET_URLS:
             store = target["store"]
             url = target["url"]
@@ -1064,7 +1106,6 @@ def scrape_deals():
                             if pdp_img_path and os.path.exists(pdp_img_path):
                                 os.remove(pdp_img_path)
                             if is_phantom:
-                                # Lock phantom stock into seen_deals so we don't waste time re-opening its PDP every 15 mins
                                 seen_deals.add(deal_key)
                                 seen_deals.add(title_key)
                                 cache_dirty = True
